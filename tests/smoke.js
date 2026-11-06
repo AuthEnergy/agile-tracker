@@ -70,7 +70,14 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
       await page.mouse.move(b.x + b.width * 0.3, b.y + b.height / 2); await page.mouse.move(b.x + b.width * 0.31, b.y + b.height / 2);
       const hov = await page.locator('#month rect[fill="none"]').count();
       check(hov >= 2, `${sc.name}: 30-day view should outline hovered day plus selected day (got ${hov})`);
-      await page.mouse.move(b.x + b.width / 2, b.y - 40); }
+      await page.mouse.move(b.x + b.width / 2, b.y - 40);
+      // touch scrub: lifting the finger on a bar must switch the viewed day
+      const before = await t('#daytitle');
+      await page.locator('#month').evaluate((el, [x, y]) => { const o = { pointerId: 7, pointerType: 'touch', isPrimary: true, bubbles: true, clientX: x, clientY: y };
+        el.dispatchEvent(new PointerEvent('pointerdown', { ...o, clientX: x + 80 })); el.dispatchEvent(new PointerEvent('pointermove', o)); el.dispatchEvent(new PointerEvent('pointerup', o)); }, [b.x + b.width * 0.5, b.y + b.height / 2]);
+      await page.waitForFunction(v => document.querySelector('#daytitle').textContent !== v, before, { timeout: 5000 }).catch(() => {});
+      check((await t('#daytitle')) !== before, `${sc.name}: touch-lift on a 30-day bar should change the viewed day`);
+      await page.locator('#todaybtn').click().catch(() => {}); }
     check(!(await page.locator('#why').isHidden()) && (await t('#whyh')).startsWith('Why today'), `${sc.name}: explanation missing`);
     check(await page.locator('#whymix .mixbar i').count() >= 3, `${sc.name}: generation mix bar missing`);
     check(await page.isEnabled('#nextd'), `${sc.name}: next-day should be enabled when tomorrow is published`);

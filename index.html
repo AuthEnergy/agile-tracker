@@ -501,7 +501,11 @@ function monthPick(e){ const svg=$('month'), g=svg._g; if(!g) return -1;
   const i=Math.floor((px-g.m.l)/(g.iw/g.n)); return g.days[i]?i:-1; }
 const mon=$('month'), mhover = e => { const i=monthPick(e); if(i<0||i===state.mhover) return; state.mhover=i; drawMonth(); };
 const mleave = () => { if(state.mhover==null) return; state.mhover=null; drawMonth(); };
-mon.addEventListener('click', e => { const i=monthPick(e), d=i>=0&&svgDays()[i]; mleave(); if(d && d.n){ state.view=d.start; load(); } });
+const mpick = i => { const d=i>=0&&svgDays()[i]; mleave(); if(d && d.n){ state.view=d.start; load(); } };
+let mDone = 0;
+// touch/pen: choose the day under the finger when it lifts (browsers don't fire click after a scrub)
+mon.addEventListener('pointerup', e => { if(e.pointerType==='mouse') return; mDone=Date.now(); mpick(monthPick(e)); });
+mon.addEventListener('click', e => { if(Date.now()-mDone<600) return; mpick(monthPick(e)); });
 mon.addEventListener('pointermove', mhover); mon.addEventListener('pointerdown', mhover);
 mon.addEventListener('pointerleave', mleave); mon.addEventListener('pointercancel', mleave);
 function svgDays(){ return mon._g ? mon._g.days : []; }
