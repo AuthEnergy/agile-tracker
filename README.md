@@ -17,3 +17,13 @@ Prices and lookups are cached in `localStorage`, so repeat visits paint instantl
 ## Run locally
 
 Open `index.html`, or serve the folder (`python3 -m http.server`). Add `?demo` to the URL for sample data.
+
+## CI/CD
+
+Every push to `main` (and every pull request) runs `.github/workflows/ci.yml`:
+
+1. **Static checks** (`npm run check`): inline JS parses, no external scripts or stylesheets, every URL host is on an allow-list (privacy gate), size under 200 KB, required elements present.
+2. **Smoke tests** (`npm test`): Playwright loads the page with all APIs mocked, in desktop and mobile, light and dark. It checks the price, chart, 30-day view, tariff overlay, explanation and mix bar render, day navigation and theme toggle work, there's no horizontal overflow or console errors, and a reload makes zero network requests.
+3. **Deploy** (main only, after the checks pass): publishes `index.html` to GitHub Pages.
+
+Run the same checks locally: `npm ci && npx playwright install chromium && npm run ci`. Screenshots from each CI run are attached as an artifact.
