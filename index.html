@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Agile Tracker</title>
+<style>
+:root{
+  --bg:#f6f7f9; --card:#fff; --text:#14181f; --muted:#667085; --line:#e4e7ec; --accent:#6b3df5;
+  --neg:#0e9f6e; --cheap:#34b27b; --mid:#f2b134; --high:#ee7a2e; --peak:#d9372f; --now:#6b3df5;
+}
+:root[data-theme="dark"]{
+  --bg:#0d1017; --card:#161b25; --text:#eef1f6; --muted:#8b95a7; --line:#262d3b; --accent:#9b7bff;
+  --neg:#2dd4a0; --cheap:#3fbf88; --mid:#f5c04a; --high:#f58a3d; --peak:#f0564d; --now:#b49cff;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0d1017; --card:#161b25; --text:#eef1f6; --muted:#8b95a7; --line:#262d3b; --accent:#9b7bff;
+    --neg:#2dd4a0; --cheap:#3fbf88; --mid:#f5c04a; --high:#f58a3d; --peak:#f0564d; --now:#b49cff;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+main{max-width:960px;margin:0 auto;display:grid;gap:16px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-size:1.15rem;margin:0;font-weight:650}
+.ctrls{display:flex;gap:8px;align-items:center}
+select,button{font:inherit;color:var(--text);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer}
+button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+.hero{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.price{font-size:clamp(2.6rem,10vw,4rem);font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.price small{font-size:.35em;font-weight:500;color:var(--muted);margin-left:4px}
+.label{color:var(--muted);font-size:.85rem}
+.clock{text-align:right;font-variant-numeric:tabular-nums}
+.clock b{font-size:1.4rem;font-weight:600}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px}
+.stat .v{font-size:1.25rem;font-weight:650;font-variant-numeric:tabular-nums}
+.chartwrap{position:relative;padding:12px 8px 8px}
+#chart{display:block;width:100%;height:340px;touch-action:pan-y;user-select:none}
+@media (max-width:560px){#chart{height:280px}}
+.tip{position:absolute;pointer-events:none;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 10px;
+  box-shadow:0 4px 16px rgba(0,0,0,.18);font-size:.85rem;white-space:nowrap;transform:translate(-50%,-100%);display:none;font-variant-numeric:tabular-nums}
+.tip b{display:block}
+.err{color:var(--peak);display:none}
+.foot{color:var(--muted);font-size:.78rem;text-align:center}
+svg text{fill:var(--muted);font-size:11px}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>⚡ Agile Tracker</h1>
+    <div class="ctrls">
+      <select id="region" aria-label="Region"></select>
+      <button id="theme" aria-label="Toggle theme" title="Toggle light/dark">Theme</button>
+    </div>
+  </header>
+
+  <section class="card hero">
+    <div>
+      <div class="label">Current price (inc. VAT)</div>
+      <div class="price"><span id="now">–</span><small>p/kWh</small></div>
+      <div class="label" id="nowslot">Loading…</div>
+    </div>
+    <div class="clock"><div class="label">UK time</div><b id="clock">--:--</b><div class="label" id="date"></div></div>
+  </section>
+
+  <section class="card stats">
+    <div class="stat"><div class="label">Next slot</div><div class="v" id="next">–</div></div>
+    <div class="stat"><div class="label">Today's low</div><div class="v" id="min">–</div></div>
+    <div class="stat"><div class="label">Today's high</div><div class="v" id="max">–</div></div>
+    <div class="stat"><div class="label">Today's average</div><div class="v" id="avg">–</div></div>
+  </section>
+
+  <section class="card chartwrap">
+    <svg id="chart" role="img" aria-label="Agile prices today"></svg>
+    <div class="tip" id="tip"></div>
+  </section>
+  <div class="err" id="err" role="alert"></div>
+  <div class="foot">Data: Octopus Energy public API, fetched directly in your browser · <span id="prod"></span> · updates every minute</div>
+</main>
+
+<script>
+(() => {
+const TZ = 'Europe/London';
+const REGIONS = {A:'Eastern England',B:'East Midlands',C:'London',D:'Merseyside & N. Wales',E:'West Midlands',F:'North East England',
+  G:'North West England',H:'Southern England',J:'South East England',K:'South Wales',L:'South West England',M:'Yorkshire',
+  N:'Southern Scotland',P:'Northern Scotland'};
+const $ = id => document.getElementById(id);
+const store = {get(k){try{return localStorage.getItem(k)}catch{return null}},set(k,v){try{localStorage.setItem(k,v)}catch{}}};
+let state = {region: store.get('region') || 'C', slots: [], product: null, hover: null};
+const params = new URLSearchParams(location.search);
+const DEMO = params.has('demo');
+
+// ---- theme
+function applyTheme(t){ if(t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme; draw(); }
+const saved = store.get('theme'); if(saved) document.documentElement.dataset.theme = saved;
+$('theme').onclick = () => {
+  const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  const next = cur === 'dark' ? 'light' : 'dark'; store.set('theme', next); applyTheme(next);
+};
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => draw());
+
+// ---- region
+for (const [k,v] of Object.entries(REGIONS)) $('region').add(new Option(`${k} – ${v}`, k));
+$('region').value = state.region;
+$('region').onchange = e => { state.region = e.target.value; store.set('region', state.region); load(); };
+
+// ---- UK time helpers
+const fmtTime = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'2-digit',minute:'2-digit',hour12:false});
+const fmtClock = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+const fmtDate = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,weekday:'long',day:'numeric',month:'long'});
+const fmtParts = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+function ukOffsetMs(date){ // ms that UK local time is ahead of UTC
+  const p = Object.fromEntries(fmtParts.formatToParts(date).map(x=>[x.type,x.value]));
+  const asUTC = Date.UTC(+p.year,+p.month-1,+p.day,(+p.hour)%24,+p.minute,+p.second);
+  return asUTC - Math.floor(date.getTime()/1000)*1000;
+}
+function ukDayStart(date){ // UTC Date for 00:00 UK on the UK calendar day of `date`
+  const off = ukOffsetMs(date);
+  const local = new Date(date.getTime() + off);
+  const midLocal = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
+  let guess = new Date(midLocal - off);
+  const off2 = ukOffsetMs(guess); // handle DST change on that day
+  return new Date(midLocal - off2);
+}
+const pr = v => (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(2)) + 'p';
+
+// ---- data
+async function getJSON(url){ const r = await fetch(url); if(!r.ok) throw new Error(`${r.status} ${url}`); return r.json(); }
+async function getAll(url){ let out=[]; while(url){ const d=await getJSON(url); out=out.concat(d.results||[]); url=d.next; } return out; }
+// Same discovery approach as agile-compare: find the live product by display name, never hardcode the version.
+async function findTariff(){
+  const key = state.region;
+  if (state.tariff && state.tariffRegion===key) return state.tariff;
+  const base='https://api.octopus.energy/v1';
+  const products = await getAll(`${base}/products/?brand=OCTOPUS_ENERGY&is_variable=true&page_size=100`);
+  const c = products.filter(p => p.display_name==='Agile Octopus' && !p.is_business && !p.is_prepay);
+  if(!c.length) throw new Error('Could not find the live Agile Octopus product');
+  const prod = (c.find(p=>!p.available_to) || c[0]).code;
+  const detail = await getJSON(`${base}/products/${prod}/`);
+  const rt = (detail.single_register_electricity_tariffs||{})['_'+key];
+  const t = rt && (rt.direct_debit_monthly || Object.values(rt)[0]);
+  if(!t) throw new Error(`No Agile tariff for region ${key}`);
+  state.product=prod; state.tariffRegion=key;
+  return state.tariff = {product:prod, code:t.code};
+}
+function demoSlots(start){
+  const out=[]; for(let i=0;i<48;i++){
+    const h=i/2; const base=18+8*Math.sin((h-4)/24*Math.PI*2)+(h>=16&&h<19?18:0)+(h<5?-22:0)+Math.sin(i*1.7)*2;
+    out.push({from:new Date(start.getTime()+i*1800e3), to:new Date(start.getTime()+(i+1)*1800e3), p:+base.toFixed(2)});
+  } return out;
+}
+async function load(){
+  $('err').style.display='none';
+  const start = ukDayStart(new Date());
+  const end = new Date(start.getTime() + 25*3600e3); // covers 23/25h days, trimmed below
+  const endDay = ukDayStart(end);
+  try{
+    if (DEMO){ state.slots = demoSlots(start); state.product='DEMO'; }
+    else {
+      const {product:prod, code:tariff} = await findTariff();
+      const url = `https://api.octopus.energy/v1/products/${prod}/electricity-tariffs/${tariff}/standard-unit-rates/` +
+        `?period_from=${start.toISOString()}&period_to=${endDay.toISOString()}&page_size=100`;
+      const d = await getJSON(url);
+      state.slots = d.results.map(r => ({from:new Date(r.valid_from), to:new Date(r.valid_to), p:r.value_inc_vat}))
+        .sort((a,b)=>a.from-b.from);
+      if(!state.slots.length) throw new Error('No prices returned for today yet');
+    }
+    $('prod').textContent = state.product;
+  }catch(e){
+    console.error(e); $('err').textContent = 'Could not load prices: ' + e.message; $('err').style.display='block';
+  }
+  render();
+}
+
+// ---- rendering
+function colour(p){
+  const s = getComputedStyle(document.documentElement);
+  const v = n => s.getPropertyValue(n).trim();
+  if (p < 0) return v('--neg'); if (p < 15) return v('--cheap'); if (p < 25) return v('--mid');
+  if (p < 35) return v('--high'); return v('--peak');
+}
+function current(){ const t=Date.now(); return state.slots.findIndex(s => s.from<=t && t<s.to); }
+function render(){
+  const t = new Date();
+  $('clock').textContent = fmtClock.format(t); $('date').textContent = fmtDate.format(t);
+  const S = state.slots, i = current();
+  if (S.length){
+    const ps = S.map(s=>s.p);
+    $('min').textContent = pr(Math.min(...ps)); $('max').textContent = pr(Math.max(...ps));
+    $('avg').textContent = pr(ps.reduce((a,b)=>a+b,0)/ps.length);
+    if (i>=0){
+      $('now').textContent = S[i].p.toFixed(2);
+      $('nowslot').textContent = `${fmtTime.format(S[i].from)}–${fmtTime.format(S[i].to)}`;
+      $('now').style.color = colour(S[i].p);
+      $('next').textContent = S[i+1] ? `${pr(S[i+1].p)} @ ${fmtTime.format(S[i+1].from)}` : 'tomorrow';
+    } else { $('now').textContent='–'; $('nowslot').textContent='No current slot'; $('next').textContent='–'; }
+  }
+  draw();
+}
+function draw(){
+  const svg = $('chart'), S = state.slots, W = svg.clientWidth || 600, H = svg.clientHeight || 300;
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  if(!S.length){ svg.innerHTML=''; return; }
+  const m = {l:38,r:14,t:26,b:24}, iw = W-m.l-m.r, ih = H-m.t-m.b;
+  const ps = S.map(s=>s.p), lo = Math.min(0,...ps), hi = Math.max(...ps)*1.08||1;
+  const y = v => m.t + ih*(1-(v-lo)/(hi-lo));
+  const t0 = S[0].from.getTime(), t1 = S[S.length-1].to.getTime();
+  const x = t => m.l + iw*(t-t0)/(t1-t0);
+  const step = (hi-lo)>60?20:(hi-lo)>25?10:5;
+  let g='';
+  for(let v=Math.ceil(lo/step)*step; v<=hi; v+=step){
+    g+=`<line x1="${m.l}" x2="${W-m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" ${v===0?'':'stroke-dasharray="3 3"'}/><text x="${m.l-6}" y="${y(v)+4}" text-anchor="end">${v}</text>`;
+  }
+  const hrStep = W<520 ? 6 : 3;
+  for(let k=0;k<=24;k+=hrStep){
+    const tt = t0 + k*3600e3; if(tt>t1) break;
+    g+=`<text x="${x(tt)}" y="${H-6}" text-anchor="${k===0?'start':(k===24?'end':'middle')}">${fmtTime.format(new Date(tt))}</text>`;
+  }
+  const nowI = current();
+  let bars='';
+  S.forEach((s,i)=>{
+    const bx=x(s.from.getTime())+0.5, bw=Math.max(1,x(s.to.getTime())-x(s.from.getTime())-1);
+    const y0=y(0), yv=y(s.p), top=Math.min(y0,yv), h=Math.max(1,Math.abs(y0-yv));
+    const dim = nowI>=0 && i<nowI ? .45 : 1;
+    bars+=`<rect x="${bx}" y="${top}" width="${bw}" height="${h}" rx="2" fill="${colour(s.p)}" opacity="${state.hover===i?1:dim}" ${state.hover===i?'stroke="var(--text)" stroke-width="1.5"':''}/>`;
+  });
+  let nowLine='';
+  const tn=Date.now();
+  if(tn>=t0 && tn<=t1){
+    const nx=x(tn);
+    nowLine=`<line x1="${nx}" x2="${nx}" y1="${m.t}" y2="${H-m.b}" stroke="var(--now)" stroke-width="2"/>
+      <circle cx="${nx}" cy="${m.t}" r="4" fill="var(--now)"/>
+      <text x="${Math.min(Math.max(nx,m.l+16),W-m.r-16)}" y="${m.t-9}" text-anchor="middle" style="fill:var(--now);font-weight:700">${fmtTime.format(new Date())}</text>`;
+  }
+  svg.innerHTML = g + bars + nowLine;
+  svg._geom = {m,iw,t0,t1,W,H,x};
+}
+
+// ---- interaction
+function pointer(e){
+  const svg=$('chart'), g=svg._geom; if(!g) return;
+  const r=svg.getBoundingClientRect(), px=(e.clientX-r.left)*(g.W/r.width);
+  const t=g.t0+(px-g.m.l)/g.iw*(g.t1-g.t0);
+  const i=state.slots.findIndex(s=>s.from.getTime()<=t && t<s.to.getTime());
+  if(i<0){ leave(); return; }
+  state.hover=i; const s=state.slots[i], tip=$('tip');
+  tip.innerHTML=`<b>${s.p.toFixed(2)} p/kWh</b>${fmtTime.format(s.from)}–${fmtTime.format(s.to)}`;
+  tip.style.display='block';
+  const wr=svg.parentElement.getBoundingClientRect();
+  const cx=(g.x(s.from.getTime())+g.x(s.to.getTime()))/2*(r.width/g.W)+(r.left-wr.left);
+  tip.style.left=Math.min(Math.max(cx,60),wr.width-60)+'px';
+  tip.style.top=Math.max(40,(e.clientY-wr.top)-12)+'px';
+  draw();
+}
+function leave(){ state.hover=null; $('tip').style.display='none'; draw(); }
+const c=$('chart');
+c.addEventListener('pointermove',pointer); c.addEventListener('pointerdown',pointer);
+c.addEventListener('pointerleave',leave); c.addEventListener('pointercancel',leave);
+addEventListener('resize',draw);
+
+// ---- loop: tick every second for clock, refresh data on UK day change / every 15 min
+let lastDay = fmtDate.format(new Date()), lastFetch = Date.now();
+setInterval(()=>{
+  const d = fmtDate.format(new Date());
+  if (d !== lastDay || Date.now()-lastFetch > 15*60e3){ lastDay=d; lastFetch=Date.now(); load(); return; }
+  $('clock').textContent = fmtClock.format(new Date());
+  if (new Date().getSeconds()===0) render();
+},1000);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) render(); });
+load();
+})();
+</script>
+</body>
+</html>
