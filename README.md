@@ -27,3 +27,9 @@ Every push to `main` (and every pull request) runs `.github/workflows/ci.yml`:
 3. **Deploy** (main only, after the checks pass): publishes `index.html` to GitHub Pages.
 
 Run the same checks locally: `npm ci && npx playwright install chromium && npm run ci`. Screenshots from each CI run are attached as an artifact.
+
+## SEO and install
+
+`index.html` carries a title, description, canonical URL, Open Graph and Twitter cards (`og-image.png`), JSON-LD (`WebApplication`) and an FAQ that is crawlable without JavaScript. Icons are `favicon.svg`, `apple-touch-icon.png` and PNGs for the web app manifest, so the page can be installed to a phone home screen. The static check fails the build if any of these go missing.
+
+After the first deploy: add `https://authenergy.github.io/agile-tracker/` in Google Search Console and Bing Webmaster Tools and submit `sitemap.xml`. Note that crawlers only read `robots.txt` at the root of `authenergy.github.io`, not from this project path.

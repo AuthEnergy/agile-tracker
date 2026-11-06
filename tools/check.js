@@ -16,16 +16,36 @@ if (/@import|url\(\s*["']?https?:/i.test(html)) errs.push('remote CSS import/url
 // 3. network allow-list: every absolute URL host must be known
 const ALLOWED = new Set([
   'api.octopus.energy', 'api.carbonintensity.org.uk', 'api.open-meteo.com', 'ipapi.co', 'ipwho.is', // data
-  'www.w3.org', 'github.com', 'authenergy.github.io',                                             // namespaces / links
+  'www.w3.org', 'schema.org', 'github.com', 'authenergy.github.io', 'auth.energy',                     // namespaces / links
 ]);
 const hosts = new Set([...html.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)].map(m => m[1].toLowerCase()));
 for (const h of hosts) if (!ALLOWED.has(h)) errs.push(`unexpected host in index.html: ${h} (add it to tools/check.js ALLOWED if intended)`);
 
-// 4. size budget
+// 4. SEO / PWA essentials
+const dir = require('path').join(__dirname, '..');
+const need = (re, msg) => { if (!re.test(html)) errs.push(msg); };
+const title = (html.match(/<title>([^<]*)<\/title>/) || [])[1] || '';
+if (title.length < 20 || title.length > 70) errs.push(`<title> should be 20-70 chars (is ${title.length})`);
+const desc = (html.match(/<meta name="description" content="([^"]*)"/) || [])[1] || '';
+if (desc.length < 70 || desc.length > 170) errs.push(`meta description should be 70-170 chars (is ${desc.length})`);
+need(/<html[^>]*\slang=/, '<html lang> missing');
+need(/<link rel="canonical" href="https:\/\/[^"]+"/, 'canonical link missing');
+need(/<meta property="og:title"/, 'og:title missing'); need(/<meta property="og:description"/, 'og:description missing');
+need(/<meta property="og:image" content="https:\/\/[^"]+\.png"/, 'og:image missing'); need(/<meta name="twitter:card"/, 'twitter:card missing');
+need(/<link rel="icon" href="favicon\.svg"/, 'favicon link missing'); need(/<link rel="apple-touch-icon"/, 'apple-touch-icon missing');
+need(/<link rel="manifest" href="manifest\.webmanifest"/, 'manifest link missing'); need(/<meta name="theme-color"/, 'theme-color missing');
+need(/<script type="application\/ld\+json">/, 'JSON-LD missing');
+if ((html.match(/<h1[\s>]/g) || []).length !== 1) errs.push('page must have exactly one <h1>');
+try { JSON.parse((html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/) || [])[1]); } catch (e) { errs.push('JSON-LD is not valid JSON'); }
+for (const f of ['favicon.svg', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'og-image.png', 'manifest.webmanifest', 'sitemap.xml'])
+  if (!fs.existsSync(require('path').join(dir, f))) errs.push(`missing asset: ${f}`);
+try { const mf = JSON.parse(fs.readFileSync(require('path').join(dir, 'manifest.webmanifest'), 'utf8')); (mf.icons || []).forEach(i => { if (!fs.existsSync(require('path').join(dir, i.src))) errs.push(`manifest icon not found: ${i.src}`); }); } catch (e) { errs.push('manifest.webmanifest invalid: ' + e.message); }
+
+// 5. size budget
 const kb = Buffer.byteLength(html) / 1024;
 if (kb > 200) errs.push(`index.html is ${kb.toFixed(0)} KB (budget 200 KB)`);
 
-// 5. required elements
+// 6. required elements
 for (const id of ['now', 'status', 'chart', 'month', 'why', 'region', 'cmpsel', 'prev', 'nextd', 'todaybtn', 'theme'])
   if (!new RegExp(`id=["']${id}["']`).test(html)) errs.push(`missing element #${id}`);
 

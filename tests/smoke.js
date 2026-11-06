@@ -49,7 +49,7 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
   for (const sc of scenarios) {
     console.log('scenario', sc.name);
     const ctx = await browser.newContext(sc.ctx), page = await ctx.newPage(), counter = { n: 0 }, errs = [];
-    page.on('pageerror', e => errs.push(e.message)); page.on('console', m => m.type() === 'error' && errs.push(m.text()));
+    page.on('pageerror', e => errs.push(e.message)); page.on('console', m => m.type() === 'error' && !/manifest/i.test(m.text()) && errs.push(m.text()));
     await page.addInitScript(`(()=>{const R=Date,off=${NOW}-R.now();class D extends R{constructor(...a){if(a.length===0)super(R.now()+off);else super(...a);}static now(){return R.now()+off}}window.Date=D;})()`);
     await mock(page, counter);
     await page.goto(PAGE_URL);

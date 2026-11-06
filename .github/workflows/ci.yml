@@ -47,7 +47,7 @@ jobs:
 
       - name: Stage site
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        run: mkdir _site && cp index.html _site/
+        run: mkdir _site && cp index.html favicon.svg *.png manifest.webmanifest sitemap.xml _site/
 
       - uses: actions/configure-pages@v5
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'

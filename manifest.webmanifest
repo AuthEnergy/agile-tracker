@@ -1,0 +1,16 @@
+{
+  "name": "Agile Tracker",
+  "short_name": "Agile",
+  "description": "Live Octopus Agile prices, tomorrow's rates, a 30-day view and why prices are high or low.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0d111b",
+  "theme_color": "#6d4aff",
+  "lang": "en-GB",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -4,8 +4,35 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<title>Agile Tracker</title>
-<meta name="description" content="Live Octopus Agile electricity prices with an interactive chart, in your browser.">
+<title>Agile Tracker – Live Octopus Agile prices today (p/kWh)</title>
+<meta name="description" content="Live Octopus Agile electricity prices today in p/kWh: half-hourly chart, tomorrow's rates, 30-day view, tariff comparison and why prices are high or low.">
+<link rel="canonical" href="https://authenergy.github.io/agile-tracker/">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<meta name="author" content="Auth Energy">
+<meta name="theme-color" content="#e6e9f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#080b12" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Agile Tracker">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Agile Tracker">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Agile Tracker – Live Octopus Agile prices today">
+<meta property="og:description" content="Today's half-hourly Agile prices, tomorrow's rates once published, a 30-day view, tariff comparison and a plain-English explanation of why prices are high or low.">
+<meta property="og:url" content="https://authenergy.github.io/agile-tracker/">
+<meta property="og:image" content="https://authenergy.github.io/agile-tracker/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Agile Tracker: a bar chart of half-hourly Octopus Agile prices with an evening peak">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Agile Tracker – Live Octopus Agile prices today">
+<meta name="twitter:description" content="Today's half-hourly Agile prices, tomorrow's rates, a 30-day view and why prices are high or low. Free, no login.">
+<meta name="twitter:image" content="https://authenergy.github.io/agile-tracker/og-image.png">
+<meta name="twitter:image:alt" content="Agile Tracker: a bar chart of half-hourly Octopus Agile prices with an evening peak">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Agile Tracker","url":"https://authenergy.github.io/agile-tracker/","description":"Live Octopus Agile electricity prices in p/kWh with half-hourly chart, tomorrow's rates, 30-day view, tariff comparison and a plain-English explanation of why prices are high or low.","applicationCategory":"UtilitiesApplication","operatingSystem":"Any (web browser)","browserRequirements":"Requires JavaScript","inLanguage":"en-GB","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"GBP"},"publisher":{"@type":"Organization","name":"Auth Energy","url":"https://auth.energy"}}</script>
 <link rel="preconnect" href="https://api.octopus.energy" crossorigin>
 <script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 <style>
@@ -29,6 +56,7 @@
 }
 *{box-sizing:border-box}
 html,body{margin:0}
+html{background:var(--bg)}
 body{background:linear-gradient(180deg,var(--bg2),var(--bg)) fixed;color:var(--text);
   font:16px/1.4 ui-rounded,"SF Pro Rounded",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;
   padding:max(20px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));
@@ -36,7 +64,7 @@ body{background:linear-gradient(180deg,var(--bg2),var(--bg)) fixed;color:var(--t
 main{max-width:880px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
 .num{font-variant-numeric:tabular-nums}
 header{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.brand{white-space:nowrap;display:flex;align-items:center;gap:10px;font-weight:700;font-size:1.1rem;letter-spacing:-.01em}
+.brand{margin:0;white-space:nowrap;display:flex;align-items:center;gap:10px;font-weight:700;font-size:1.1rem;letter-spacing:-.01em}
 .logo{width:32px;height:32px;border-radius:11px;background:linear-gradient(135deg,var(--accent),#ff7ab6);display:grid;place-items:center;color:#fff}
 .logo svg{width:18px;height:18px}
 .ctrls{display:flex;gap:8px;align-items:center}
@@ -122,6 +150,14 @@ select.pill.sm{height:32px;padding-right:28px;padding-left:12px;max-width:60vw}
 .legend span{display:inline-flex;align-items:center;gap:6px}
 .legend i{width:10px;height:10px;border-radius:4px}
 .err{display:none;padding:12px 16px;border-radius:18px;background:color-mix(in srgb,var(--peak) 14%,var(--card));border:1px solid color-mix(in srgb,var(--peak) 40%,var(--line));font-size:.9rem}
+.about{padding:18px 22px}
+.about h2{font-size:1rem;margin:0 0 6px}
+.about details{border-top:1px solid var(--line);padding:10px 0}
+.about details:first-of-type{border-top:0}
+.about summary{cursor:pointer;font-weight:600;font-size:.92rem}
+.about summary:focus-visible,.about a:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.about p{margin:8px 0 0;color:var(--muted);font-size:.86rem;line-height:1.5}
+.about a{color:var(--accent)}
 .foot{color:var(--muted);font-size:.75rem;text-align:center;padding:4px 8px}
 svg text{fill:var(--muted);font-size:11px;font-family:inherit}
 </style>
@@ -129,7 +165,7 @@ svg text{fill:var(--muted);font-size:11px;font-family:inherit}
 <body>
 <main>
   <header>
-    <div class="brand"><div class="logo"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg></div><span>Agile Tracker</span></div>
+    <h1 class="brand"><span class="logo"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg></span><span>Agile Tracker</span></h1>
     <div class="ctrls">
       <select id="region" class="pill" aria-label="Region"></select>
       <button id="theme" class="pill" aria-label="Toggle light/dark theme" title="Toggle light/dark">
@@ -139,6 +175,7 @@ svg text{fill:var(--muted);font-size:11px;font-family:inherit}
     </div>
   </header>
 
+  <noscript><section class="card" style="padding:20px"><h2 style="margin:0 0 8px;font-size:1rem">JavaScript is needed</h2><p style="margin:0">Agile Tracker shows live Octopus Agile electricity prices (p/kWh) with a half-hourly chart, tomorrow's rates, a 30-day view and tariff comparison. It fetches prices directly from Octopus Energy's public API in your browser, so it needs JavaScript enabled.</p></section></noscript>
   <section class="card hero" id="hero">
     <div class="hero-body">
       <div class="hero-left">
@@ -183,6 +220,13 @@ svg text{fill:var(--muted);font-size:11px;font-family:inherit}
       </div>
     <svg id="month" role="img" aria-label="Daily average prices, last 30 days"></svg>
     <div class="mread" id="mread"></div>
+  </section>
+  <section class="card about" aria-labelledby="about-h">
+    <h2 id="about-h">About Agile Tracker</h2>
+    <details><summary>What is Octopus Agile?</summary><p>Agile Octopus is a time-of-use electricity tariff from Octopus Energy where the unit rate changes every half hour, following the wholesale market. Next-day prices are usually published in the afternoon (around 4pm UK time). Prices can go negative when supply is high and demand is low, which means you are paid to use electricity.</p></details>
+    <details><summary>Why are prices higher between 4pm and 7pm?</summary><p>Agile adds a fixed premium (roughly 11–14p/kWh depending on region) between 16:00 and 19:00, when demand is highest. The price is also capped at 100p/kWh including VAT.</p></details>
+    <details><summary>Where does the data come from?</summary><p>Prices come from Octopus Energy's public API. The explanation uses national generation mix and carbon intensity from the NESO Carbon Intensity API and regional weather from Open-Meteo. Everything is fetched directly in your browser; there is no server and no account.</p></details>
+    <details><summary>Is this an official Octopus Energy product?</summary><p>No. Agile Tracker is an independent tool by <a href="https://auth.energy" rel="noopener">Auth Energy</a>. Octopus Energy and Agile Octopus are trademarks of Octopus Energy Ltd.</p></details>
   </section>
   <div class="err" id="err" role="alert"></div>
   <div class="foot">Octopus Energy public API, fetched directly in your browser · <span id="prod"></span><span id="auto"></span></div>
@@ -390,6 +434,7 @@ function render(){
   const isToday = dayKey(state.view)===dayKey(state.todayStart);
   $('todaybtn').disabled = isToday; $('nextd').disabled = !state.hasNext;
   $('nextd').title = state.hasNext ? 'Next day (→)' : 'Tomorrow\'s prices aren\'t published yet (usually ~4pm)';
+  document.title = (S.length && i>=0) ? `${pr(S[i].p)} now · Agile Tracker` : 'Agile Tracker – Live Octopus Agile prices today (p/kWh)';
   drawAll(); renderWhy();
 }
 function drawAll(){ drawChart(); drawMonth(); }
