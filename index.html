@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>Agile Tracker</title>
+<meta name="description" content="Live Octopus Agile electricity prices with an interactive chart, in your browser.">
+<link rel="preconnect" href="https://api.octopus.energy" crossorigin>
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 <style>
 :root{
   --bg:#eef0f6; --bg2:#f8f9fc; --card:#ffffff; --tile:#f4f5fa; --text:#12151f; --muted:#6b7385; --line:#e6e9f2; --accent:#6d4aff;
@@ -163,7 +166,7 @@ const store = {get(k){try{return localStorage.getItem(k)}catch{return null}},set
 const params = new URLSearchParams(location.search);
 const DEMO = params.has('demo');
 let state = {region: store.get('region') || store.get('regionAuto') || 'C', tariff:null, tariffRegion:null,
-  pc:new Map(), data:new Map(), view:null, todayStart:null, slots:[], today:[], hasNext:false, tomorrow:false, overlay:null, hover:null};
+  days:new Map(), view:null, todayStart:null, slots:[], today:[], hasNext:false, tomorrow:false, overlay:null, hover:null};
 
 // ---- theme
 const eff = () => document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
@@ -176,7 +179,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => ap
 for (const [k,v] of Object.entries(REGIONS)) $('region').add(new Option(`${k} – ${v}`, k));
 $('region').value = state.region;
 $('region').onchange = e => { $('auto').textContent=''; $('region').title=''; state.region = e.target.value; store.set('region', state.region);
-  state.tariff=null; state.pc.clear(); state.data.clear(); load(); };
+  state.tariff=null; state.days.clear(); state.view=state.todayStart; load(); };
 
 // ---- UK time helpers
 const fmtTime = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'2-digit',minute:'2-digit',hour12:false});
@@ -185,7 +188,6 @@ const fmtDate = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,weekday:'long',day:
 const fmtDay = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,weekday:'short',day:'numeric',month:'short'});
 const fmtLong = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,weekday:'long',day:'numeric',month:'long'});
 const fmtDM = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,day:'numeric',month:'short'});
-const fmtMonth = new Intl.DateTimeFormat('en-GB',{timeZone:'UTC',month:'long',year:'numeric'});
 const fmtParts = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
 const parts = d => Object.fromEntries(fmtParts.formatToParts(d).map(x=>[x.type,x.value]));
 function ukOffsetMs(date){
@@ -198,13 +200,9 @@ function ukDayStart(date){
   return new Date(midLocal - ukOffsetMs(new Date(midLocal - off)));
 }
 const dayKey = d => { const p=parts(d); return `${p.year}-${p.month}-${p.day}`; };
-const monKey = d => dayKey(d).slice(0,7);
 const nextDay = s => ukDayStart(new Date(s.getTime()+36*3600e3));
 const prevDay = s => ukDayStart(new Date(s.getTime()-12*3600e3));
-const monthBounds = key => { const [y,m]=key.split('-').map(Number);
-  return [ukDayStart(new Date(Date.UTC(y,m-1,1,12))), ukDayStart(new Date(Date.UTC(y,m,1,12)))]; };
-const shiftMonth = (key,n) => { const [y,m]=key.split('-').map(Number); const d=new Date(Date.UTC(y,m-1+n,1)); return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`; };
-const daySlots = (slots,start) => { const e=nextDay(start); return slots.filter(s=>s.from>=start && s.from<e); };
+const daySlots = start => state.days.get(dayKey(start)) || [];
 const pr = v => (v<0?'−':'') + Math.abs(v).toFixed(2) + 'p';
 const BANDS = [[0,'--neg','Negative – paid to use'],[15,'--cheap','Cheap right now'],[25,'--mid','Average price'],[35,'--high','Pricey right now'],[Infinity,'--peak','Peak price']];
 const band = p => BANDS.find(b => p < b[0]);
@@ -213,17 +211,41 @@ const curIdx = S => { const t=Date.now(); return S.findIndex(s => s.from<=t && t
 
 // ---- auto-detect region from IP (browser-side): IP -> postcode (ipapi.co / ipwho.is) -> Octopus GSP lookup -> region letter
 async function detectRegion(){
-  const t = ms => new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),ms));
-  const j = async u => { const r = await Promise.race([fetch(u), t(4000)]); if(!r.ok) throw new Error(r.status); return r.json(); };
-  let loc = null;
-  try { const d = await j('https://ipapi.co/json/'); if(d && !d.error) loc = {cc:d.country_code, pc:d.postal}; } catch {}
-  if (!loc || !loc.pc) { try { const d = await j('https://ipwho.is/'); if(d && d.success) loc = {cc:d.country_code, pc:d.postal}; } catch {} }
-  if (!loc || loc.cc !== 'GB' || !loc.pc) return null;
+  const j = async (u, ms=2500) => { const c=new AbortController(), id=setTimeout(()=>c.abort(),ms);
+    try{ const r=await fetch(u,{signal:c.signal}); if(!r.ok) throw new Error(r.status); return await r.json(); } finally{ clearTimeout(id); } };
+  const ok = x => { if(!x || x.cc!=='GB' || !x.pc) throw new Error('no GB postcode'); return x; };
+  let loc;
+  try { loc = await Promise.any([
+    j('https://ipapi.co/json/').then(d => ok({cc:d.country_code, pc:d.postal})),
+    j('https://ipwho.is/').then(d => ok({cc:d.country_code, pc:d.postal}))]); } catch { return null; }
   const pc = loc.pc.trim().split(/\s+/)[0];
   const d = await j(`${BASE}/industry/grid-supply-points/?postcode=${encodeURIComponent(pc)}`);
   const ids = [...new Set((d.results||[]).map(r => (r.group_id||'').replace('_','')))].filter(x => REGIONS[x]);
   return ids.length === 1 ? {region: ids[0]} : null;
 }
+
+// ---- cache (localStorage). Published Agile prices never change, so full days are cached permanently.
+const LS = {
+  get(k){ try{ const v=localStorage.getItem('agt:'+k); return v?JSON.parse(v):null; }catch{ return null; } },
+  set(k,v){ const j=JSON.stringify(v); try{ localStorage.setItem('agt:'+k,j); }catch{ LS.prune(); try{ localStorage.setItem('agt:'+k,j); }catch{} } },
+  prune(){ try{ const ks=[]; for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k&&(k.startsWith('agt:d:')||k.startsWith('agt:o:'))) ks.push(k); }
+    ks.sort().slice(0,Math.ceil(ks.length/2)).forEach(k=>localStorage.removeItem(k)); }catch{} }
+};
+const SHORT = 10*60e3;
+function dayFromCache(start){
+  const e = LS.get(`d:${state.region}:${dayKey(start)}`); if(!e || !Array.isArray(e.p)) return null;
+  const age = Date.now()-e.t, past = nextDay(start).getTime() < Date.now()-864e5;
+  if (e.p.length>=46 || (e.p.length===0 && past && age<7*864e5) || age<SHORT)
+    return e.p.map((p,i)=>({from:new Date((e.s+i*1800)*1000), to:new Date((e.s+(i+1)*1800)*1000), p}));
+  return null;
+}
+function dayToCache(start, slots){
+  const s0 = slots.length ? slots[0].from.getTime()/1000 : 0;
+  if (slots.some((x,i)=>x.from.getTime()/1000 !== s0+i*1800)) return; // non-contiguous: don't cache
+  LS.set(`d:${state.region}:${dayKey(start)}`, {t:Date.now(), s:s0, p:slots.map(x=>x.p)});
+}
+// drop cached days older than 120 days
+try{ const cut=Date.now()-120*864e5; for(let i=localStorage.length-1;i>=0;i--){ const k=localStorage.key(i); const m=k&&/^agt:d:[A-P]:(\d{4}-\d\d-\d\d)$/.exec(k); if(m && Date.parse(m[1])<cut) localStorage.removeItem(k); } }catch{}
 
 // ---- data
 async function getJSON(url){ const r = await fetch(url); if(!r.ok) throw new Error(`${r.status} ${url}`); return r.json(); }
@@ -231,6 +253,8 @@ async function getAll(url){ let out=[]; while(url){ const d=await getJSON(url); 
 // Same discovery approach as agile-compare: live product by display name, never a hardcoded version.
 async function findTariff(){
   if (state.tariff && state.tariffRegion===state.region) return state.tariff;
+  const ct = LS.get('tar:'+state.region);
+  if (ct && Date.now()-ct.t < 24*3600e3){ state.tariffRegion = state.region; return state.tariff = {product:ct.product, code:ct.code}; }
   const products = await getAll(`${BASE}/products/?brand=OCTOPUS_ENERGY&is_variable=true&page_size=100`);
   const c = products.filter(p => p.display_name==='Agile Octopus' && !p.is_business && !p.is_prepay);
   if(!c.length) throw new Error('Could not find the live Agile Octopus product');
@@ -240,6 +264,7 @@ async function findTariff(){
   const t = rt && (rt.direct_debit_monthly || Object.values(rt)[0]);
   if(!t) throw new Error(`No Agile tariff for region ${state.region}`);
   state.tariffRegion = state.region;
+  LS.set('tar:'+state.region, {t:Date.now(), product:prod, code:t.code});
   return state.tariff = {product:prod, code:t.code};
 }
 function demoSlots(start, k){
@@ -248,44 +273,45 @@ function demoSlots(start, k){
     out.push({from:new Date(start.getTime()+i*1800e3), to:new Date(start.getTime()+(i+1)*1800e3), p:+base.toFixed(2)});
   } return out;
 }
-function getMonth(key){
-  if (state.pc.has(key)) return state.pc.get(key);
-  const prom = (async () => {
-    const [a,b] = monthBounds(key); let slots=[];
-    if (DEMO){ let k=0; for(let s=a; s<b && s<=state.todayStart; s=nextDay(s)) slots.push(...demoSlots(s, Math.sin(k++)*6)); }
-    else {
-      const {product, code} = await findTariff();
-      const rows = await getAll(`${BASE}/products/${product}/electricity-tariffs/${code}/standard-unit-rates/?period_from=${a.toISOString()}&period_to=${b.toISOString()}&page_size=1500`);
-      slots = rows.map(r => ({from:new Date(r.valid_from), to:new Date(r.valid_to), p:r.value_inc_vat})).sort((x,y)=>x.from-y.from);
-    }
-    state.data.set(key, slots); return slots;
-  })();
-  state.pc.set(key, prom); prom.catch(() => state.pc.delete(key));
-  return prom;
+async function fetchRates(a,b){
+  if (DEMO){ const out=[]; let k=0; for(let d=a; d<b && d<=state.todayStart; d=nextDay(d)) out.push(...demoSlots(d, Math.sin(k++)*6)); return out; }
+  const {product, code} = await findTariff();
+  const rows = await getAll(`${BASE}/products/${product}/electricity-tariffs/${code}/standard-unit-rates/?period_from=${a.toISOString()}&period_to=${b.toISOString()}&page_size=1500`);
+  return rows.map(r => ({from:new Date(r.valid_from), to:new Date(r.valid_to), p:r.value_inc_vat})).sort((x,y)=>x.from-y.from);
+}
+async function ensureDays(starts){
+  const seen=new Set(), need=[];
+  for (const s of starts){ const k=dayKey(s); if(seen.has(k)) continue; seen.add(k); if(state.days.has(k)) continue;
+    const c=dayFromCache(s); if(c) state.days.set(k,c); else need.push(s); }
+  if(!need.length) return;
+  need.sort((x,y)=>x-y);
+  const region=state.region, rows = await fetchRates(need[0], nextDay(need[need.length-1]));
+  if (region!==state.region) return;
+  for (const s of need){ const e=nextDay(s), sl=rows.filter(r=>r.from>=s && r.from<e); state.days.set(dayKey(s), sl); if(!DEMO) dayToCache(s, sl); }
 }
 async function load(){
   $('err').style.display='none';
-  state.todayStart = ukDayStart(new Date());
-  if (!state.view) state.view = state.todayStart;
-    try{
-    const nd = nextDay(state.view);
-    const [tm, vmS, ndm] = await Promise.all([getMonth(monKey(state.todayStart)), getMonth(monKey(state.view)), getMonth(monKey(nd))]);
-    await Promise.all([...new Set(last30().map(monKey))].map(getMonth));
-    state.today = daySlots(tm, state.todayStart);
-    state.slots = daySlots(vmS, state.view);
-    state.hasNext = daySlots(ndm, nd).length > 0;
-    const tm2 = await getMonth(monKey(nextDay(state.todayStart)));
-    state.tomorrow = daySlots(tm2, nextDay(state.todayStart)).length > 0;
-    $('prod').textContent = DEMO ? 'DEMO' : state.tariff.product;
+  const tok = state.loadTok = {}, ts = state.todayStart = ukDayStart(new Date());
+  if (!state.view) state.view = ts;
+  const tom = nextDay(ts), vn = nextDay(state.view);
+  const apply = () => { state.today=daySlots(ts); state.slots=daySlots(state.view); state.hasNext=daySlots(vn).length>0; state.tomorrow=daySlots(tom).length>0; };
+  const prodName = () => DEMO ? 'DEMO' : ((state.tariff || LS.get('tar:'+state.region) || {}).product || '');
+  try{
+    await ensureDays([ts, tom, state.view, vn]);          // phase 1: just what the first paint needs
+    if (state.loadTok!==tok) return;
+    apply(); $('prod').textContent = prodName(); render(); loadOverlay();
+    await ensureDays(last30());                           // phase 2: the 30-day strip
+    if (state.loadTok!==tok) return;
+    apply(); drawMonth();
+    if (last30()[29] > ts) await ensureDays(last30());    // tomorrow appeared in phase 2
   }catch(e){
-    console.error(e); $('err').textContent = 'Could not load prices: ' + e.message; $('err').style.display='block';
+    console.error(e);
+    if (state.loadTok===tok && !state.today.length && !state.slots.length){ $('err').textContent = 'Could not load prices: ' + e.message; $('err').style.display='block'; render(); }
   }
-  render();
-  loadOverlay();
 }
-function refresh(){ // drop current & future months so new prices are picked up
-  const ck = monKey(new Date());
-  for (const k of [...state.pc.keys()]) if (k >= ck) { state.pc.delete(k); }
+function refresh(){ // re-check days that are still incomplete (e.g. tomorrow before ~4pm)
+  const tk = dayKey(new Date());
+  for (const [k,v] of [...state.days]) if (k>=tk && v.length<46) state.days.delete(k);
   load();
 }
 
@@ -382,7 +408,7 @@ function drawChart(){
 function last30(){ const out=[]; let d=state.tomorrow ? nextDay(state.todayStart) : state.todayStart; for(let i=0;i<30;i++){ out.unshift(d); d=prevDay(d); } return out; }
 function monthDays(){
   return last30().map(s=>{
-    const d=daySlots(state.data.get(monKey(s))||[],s), ps=d.map(x=>x.p);
+    const d=daySlots(s), ps=d.map(x=>x.p);
     return {start:s, n:d.length, avg:ps.length?ps.reduce((u,v)=>u+v,0)/ps.length:null, min:ps.length?Math.min(...ps):null, max:ps.length?Math.max(...ps):null};
   });
 }
@@ -438,21 +464,37 @@ async function productsAt(dayStart){
 async function tariffRates(name, dayStart, slots){
   const key = `${name}|${state.region}|${dayKey(dayStart)}`;
   if (ovCache.has(key)) return ovCache.get(key);
+  const ck = `o:${key}`, oc = LS.get(ck), oEnd = nextDay(dayStart).getTime();
+  if (oc && Array.isArray(oc.r) && oc.r.length===slots.length && (oEnd < Date.now() || Date.now()-oc.t < 6*3600e3)){ const v=Promise.resolve(oc.r); ovCache.set(key,v); return v; }
   const prom = (async () => {
-    const want = name.toLowerCase();
+    const want = name.toLowerCase(), end = nextDay(dayStart), pk = `p:${name}|${state.region}`;
+    const q = `period_from=${dayStart.toISOString()}&period_to=${end.toISOString()}&page_size=1500`;
+    const sample = (day, night) => slots.map(s => { const t0=s.from.getTime(), n=rateAt(night,t0), d=rateAt(day,t0); const r=n||d; return r?r.p:null; });
+    const fetchRatesFor = async (pcode, tcode, withNight) => {
+      const base = `${BASE}/products/${pcode}/electricity-tariffs/${tcode}`;
+      const [day, night] = await Promise.all([
+        getAll(`${base}/standard-unit-rates/?${q}`).catch(()=>[]),
+        withNight ? getAll(`${base}/night-unit-rates/?${q}`).catch(()=>[]) : []]);
+      return {day:day.filter(dd).map(toWin), night:night.filter(dd).map(toWin)};
+    };
+    // fast path: reuse the product/tariff resolved earlier if its version covers this day (saves 2-3 requests per day navigated)
+    const pc = LS.get(pk);
+    if (pc && Date.now()-pc.t < 7*864e5 && (!pc.f || Date.parse(pc.f) <= dayStart.getTime()) && (!pc.to || Date.parse(pc.to) >= end.getTime())){
+      const r = await fetchRatesFor(pc.code, pc.tc, pc.night);
+      if (r.day.length){ const out = sample(r.day, r.night); if (out.some(v=>v!==null)){ LS.set(ck, {t:Date.now(), r:out}); return out; } }
+    }
     const cands = (await productsAt(dayStart)).filter(p => (p.display_name||'').toLowerCase()===want && !p.is_business && !p.is_prepay);
-    const end = nextDay(dayStart);
     for (const p of cands){
       const det = await getJSON(`${BASE}/products/${p.code}/`);
       const rt = (det.single_register_electricity_tariffs||{})['_'+state.region];
       const t = rt && (rt.direct_debit_monthly || Object.values(rt)[0]); if(!t) continue;
-      const q = `period_from=${dayStart.toISOString()}&period_to=${end.toISOString()}&page_size=1500`;
-      const base = `${BASE}/products/${p.code}/electricity-tariffs/${t.code}`;
-      const day = (await getAll(`${base}/standard-unit-rates/?${q}`).catch(()=>[])).filter(dd).map(toWin);
-      if(!day.length) continue;
-      const night = (await getAll(`${base}/night-unit-rates/?${q}`).catch(()=>[])).filter(dd).map(toWin);
-      const out = slots.map(s => { const t0=s.from.getTime(), n=rateAt(night,t0), d=rateAt(day,t0); const r=n||d; return r?r.p:null; });
-      if (out.some(v=>v!==null)) return out;
+      const r = await fetchRatesFor(p.code, t.code, true);
+      if(!r.day.length) continue;
+      const out = sample(r.day, r.night);
+      if (out.some(v=>v!==null)){
+        LS.set(pk, {t:Date.now(), code:p.code, tc:t.code, f:p.available_from||null, to:p.available_to||null, night:r.night.length>0});
+        LS.set(ck, {t:Date.now(), r:out}); return out;
+      }
     }
     return null;
   })();
