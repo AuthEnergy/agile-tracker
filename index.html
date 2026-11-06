@@ -563,45 +563,52 @@ async function loadContext(){
   renderWhy();
 }
 const lastAtOrBefore = (arr, ms, maxAge=2*3600e3) => { let b=null; for(const x of arr) if(x.f<=ms) b=x; else break; return b && ms-b.f<=maxAge ? b : null; };
-function explain(){
-  const S=state.today, i=curIdx(S); if(i<0) return null;
-  const cur=S[i], ms=cur.from.getTime(), p=parts(cur.from), h=(+p.hour%24)+(+p.minute)/60, ps=S.map(s=>s.p);
-  const avg=ps.reduce((a,b)=>a+b,0)/ps.length, diff=cur.p-avg, dir = cur.p<15 ? -1 : cur.p<25 ? 0 : 1;
-  const F=[], r=Math.round, ctx=state.ctx||{};
-  if (h>=16 && h<19) F.push({d:1,w:90,t:'🕓',x:'Evening peak: Agile adds a ~12p premium from 16:00 to 19:00'});
-  else if (h<6) F.push({d:-1,w:45,t:'🌙',x:'Overnight: national demand is at its lowest'});
-  else if (h>=7 && h<9.5) F.push({d:1,w:35,t:'⏰',x:'Morning demand ramp-up'});
-  else if (h>=19 && h<21.5) F.push({d:1,w:25,t:'🏠',x:'Evening demand is still elevated'});
-  const m = ctx.mix && lastAtOrBefore(ctx.mix, ms);
-  if (m){
-    if (m.wind>=30) F.push({d:-1,w:60+m.wind/2,t:'💨',x:`Wind is generating ${r(m.wind)}% of Britain's electricity`});
-    else if (m.wind<=8) F.push({d:1,w:58,t:'💨',x:`Wind output is very low (${r(m.wind)}%)`});
-    if (m.solar>=8) F.push({d:-1,w:50+m.solar,t:'☀️',x:`Solar is supplying ${r(m.solar)}% of the grid`});
-    if (m.gas>=45) F.push({d:1,w:70,t:'🔥',x:`Gas is supplying ${r(m.gas)}% and tends to set the marginal price`});
-    else if (m.gas<=15) F.push({d:-1,w:40,t:'🔥',x:`Gas is only ${r(m.gas)}% of generation`});
+const trange = (a,b) => Math.round(a)===Math.round(b) ? `${Math.round(a)}°C` : `${Math.round(a)}–${Math.round(b)}°C`;
+const mean = a => a.reduce((x,y)=>x+y,0)/a.length;
+const fmtWd = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,weekday:'short'});
+function explain(){ // day-level: why is *today* cheap / pricey / average?
+  const S=state.today; if(!S.length) return null;
+  const ctx=state.ctx||{}, r=Math.round, ps=S.map(s=>s.p), avg=mean(ps), hh=d=>fmtTime.format(d);
+  const t0=S[0].from.getTime(), t1=S[S.length-1].to.getTime();
+  const past=monthDays().filter(d=>d.n && dayKey(d.start)!==dayKey(state.todayStart)), avg30=past.length>=7?mean(past.map(d=>d.avg)):null;
+  const dir = avg30!==null ? (avg-avg30 < -0.08*Math.abs(avg30) ? -1 : avg-avg30 > 0.08*Math.abs(avg30) ? 1 : 0) : (avg<15?-1:avg<25?0:1);
+  const rel = avg30!==null ? ['cheaper than usual','about average','pricier than usual'][dir+1] : ['cheap','about average','pricey'][dir+1];
+  const F=[];
+  // generation mix so far today (national)
+  const mix=(ctx.mix||[]).filter(x=>x.f>=t0 && x.f<t1);
+  let mw=null, mg=null, ms=null, mn=null;
+  if (mix.length>=4){ mw=mean(mix.map(x=>x.wind)); mg=mean(mix.map(x=>x.gas)); ms=Math.max(...mix.map(x=>x.solar)); mn=mean(mix.map(x=>x.nuclear));
+    if (mw>=28) F.push({d:-1,w:60+mw/2,t:'💨',x:`Windy: wind has averaged ${r(mw)}% of Britain's electricity so far today`});
+    else if (mw<=10) F.push({d:1,w:60,t:'💨',x:`Light wind: only ${r(mw)}% of electricity so far today`});
+    if (mg>=45) F.push({d:1,w:70,t:'🔥',x:`Gas is doing the heavy lifting (${r(mg)}% of generation), which tends to set the price`});
+    else if (mg<=20) F.push({d:-1,w:45,t:'🔥',x:`Little gas needed (${r(mg)}% of generation)`});
+    if (ms>=8) F.push({d:-1,w:35+ms,t:'☀️',x:`Solar peaks at ${r(ms)}% of the grid`});
   }
-  const c = ctx.ci && lastAtOrBefore(ctx.ci, ms);
-  if (c && c.v!=null){
-    if (c.idx==='very high'||c.idx==='high') F.push({d:1,w:30,t:'🌍',x:`Grid carbon intensity is ${c.idx} (${c.v} g/kWh) – more fossil generation`});
-    else if (c.idx==='very low'||c.idx==='low') F.push({d:-1,w:30,t:'🌍',x:`Grid carbon intensity is ${c.idx} (${c.v} g/kWh) – plenty of clean supply`});
-  }
-  const w = ctx.wx; let wi=-1, wv=null;
-  if (w){ wi=w.times.indexOf(new Date(Math.floor(ms/3600e3)*3600e3).toISOString().slice(0,13)+':00'); if(wi>=0) wv={temp:w.temp[wi],wind:w.wind[wi],cloud:w.cloud[wi],sun:w.sun[wi]}; }
-  if (wv){
-    if (wv.temp!=null && wv.temp<=3) F.push({d:1,w:42,t:'🌡️',x:`Cold weather (${r(wv.temp)}°C) lifts heating demand`});
-    if (!m && wv.wind!=null){ if(wv.wind>=9) F.push({d:-1,w:45,t:'💨',x:`Strong winds in your region (${wv.wind.toFixed(1)} m/s at turbine height)`}); else if(wv.wind<=3) F.push({d:1,w:30,t:'💨',x:`Calm winds in your region (${wv.wind.toFixed(1)} m/s)`}); }
-    if (!m && wv.sun>=250 && wv.cloud<40) F.push({d:-1,w:35,t:'☀️',x:'Clear, sunny skies boost solar output'});
-  }
-  const top = (d,n) => F.filter(f=>f.d===d).sort((a,b)=>b.w-a.w).slice(0,n);
-  let head, items;
-  if (cur.p<0){ head='Why you\'re being paid to use power'; items=top(-1,2); if(!items.length) items=[{t:'⚡',x:'Supply is far ahead of demand, so wholesale prices have gone negative'}]; }
-  else if (dir<0){ head='Why it\'s cheap'; items=top(-1,2); if(!items.length) items=[{t:'⚡',x:'Supply is comfortably ahead of demand'}]; }
-  else if (dir>0){ head=cur.p>=35?'Why it\'s a peak price':'Why it\'s pricey'; items=top(1,2); if(!items.length) items=[{t:'⚡',x:'Demand is tight relative to available supply'}]; }
-  else { head='Why it\'s about average'; items=[...top(-1,1),...top(1,1)]; if(!items.length) items=[{t:'⚖️',x:'Supply and demand are roughly in balance'}]; }
-  const bits=[]; if(m) bits.push(`Wind ${r(m.wind)}% · Gas ${r(m.gas)}% · Solar ${r(m.solar)}% · Nuclear ${r(m.nuclear)}%`);
-  if (wv && wv.temp!=null) bits.push(`${r(wv.temp)}°C`);
-  const vs = Math.abs(diff)<0.5 ? "in line with today's average" : `${Math.abs(diff).toFixed(1)}p ${diff<0?'below':'above'} today's average`;
-  return {head, items, foot: vs + (bits.length? ' · '+bits.join(' · '):'')};
+  const ci=(ctx.ci||[]).filter(x=>x.f>=t0 && x.f<t1 && x.v!=null);
+  let cav=null; if (ci.length>=8){ cav=mean(ci.map(x=>x.v));
+    if (cav>=220) F.push({d:1,w:28,t:'🌍',x:`Carbon-heavy grid today (~${r(cav)} g/kWh) – more fossil generation`});
+    else if (cav<=110) F.push({d:-1,w:28,t:'🌍',x:`Clean grid today (~${r(cav)} g/kWh) – plenty of low-cost supply`}); }
+  // weather in your region
+  let tmin=null, tmax=null; const w=ctx.wx;
+  if (w){ const ix=w.times.map((t,i)=>i).filter(i=>{ const ms_=Date.parse(w.times[i]+':00Z'); return ms_>=t0 && ms_<t1; });
+    if (ix.length>=12){ const T=ix.map(i=>w.temp[i]), WS=ix.map(i=>w.wind[i]), CL=ix.map(i=>w.cloud[i]), SU=ix.map(i=>w.sun[i]);
+      tmin=Math.min(...T); tmax=Math.max(...T); const ta=mean(T), wa=mean(WS), ca=mean(CL), sx=Math.max(...SU);
+      if (ta<=4) F.push({d:1,w:42,t:'🌡️',x:`Cold (${trange(tmin,tmax)}) means high heating demand`});
+      else if (ta>=12) F.push({d:-1,w:25,t:'🌡️',x:`Mild (${trange(tmin,tmax)}) keeps heating demand low`});
+      if (mw===null){ if (wa>=8.5) F.push({d:-1,w:45,t:'💨',x:`Breezy in your region (avg ${wa.toFixed(1)} m/s at turbine height)`}); else if (wa<=3.5) F.push({d:1,w:35,t:'💨',x:`Calm in your region (avg ${wa.toFixed(1)} m/s)`}); }
+      if (ms===null && sx>=300 && ca<50) F.push({d:-1,w:30,t:'☀️',x:'Clear skies should boost solar output'}); } }
+  if (['Sat','Sun'].includes(fmtWd.format(S[0].from))) F.push({d:-1,w:32,t:'🗓️',x:'Weekend: lower business demand'});
+  const top=(d,n)=>F.filter(f=>f.d===d).sort((a,b)=>b.w-a.w).slice(0,n);
+  let items = dir<0 ? top(-1,2) : dir>0 ? top(1,2) : [...top(-1,1),...top(1,1)];
+  if (!items.length) items=[{t:'⚡',x: dir<0?'Supply is generally ahead of demand today':dir>0?'Demand is tight relative to supply today':'Supply and demand are broadly in balance today'}];
+  // shape of the day
+  if (S.length>=4){ const W=4; let b=0,ba=Infinity; for(let i=0;i+W<=S.length;i++){ const a=mean(ps.slice(i,i+W)); if(a<ba){ba=a;b=i;} }
+    const pk=S[ps.indexOf(Math.max(...ps))], negN=ps.filter(v=>v<0).length;
+    items.push({t:'📈',x:`Cheapest 2 hours: ${hh(S[b].from)}–${hh(S[b+W-1].to)} (avg ${pr(ba)}). Dearest: ${hh(pk.from)} at ${pr(pk.p)}${negN?`. Negative for ${negN/2}h`:''}`}); }
+  const bits=[`Avg ${pr(avg)}`+(avg30!==null?` vs ${pr(avg30)} 30-day avg`:'')];
+  if (mw!==null) bits.push(`Wind ${r(mw)}% · Gas ${r(mg)}% · Nuclear ${r(mn)}%`);
+  if (tmin!==null) bits.push(trange(tmin,tmax));
+  return {head:`Why today is ${rel}`, items, foot:bits.join(' · ')};
 }
 function renderWhy(){
   const e = explain(), box=$('why');
@@ -609,7 +616,7 @@ function renderWhy(){
   box.hidden=false; $('whyh').textContent=e.head;
   $('whyl').innerHTML = e.items.map(i=>`<li><span>${i.t}</span><span>${i.x}</span></li>`).join('');
   $('whyd').textContent=e.foot;
-  $('whyd').title='Agile price ≈ wholesale × ~2.2, plus ~12p between 16:00 and 19:00 (capped at 100p). Generation mix & carbon intensity: NESO Carbon Intensity API (national). Weather: Open-Meteo (your region). Demand is estimated from time of day.';
+  $('whyd').title='Agile price ≈ wholesale × ~2.2, plus ~12p between 16:00 and 19:00 (capped at 100p). Generation mix & carbon intensity: NESO Carbon Intensity API (national). Weather: Open-Meteo (your region). Demand is not measured directly; weekday/weather are used as proxies.';
 }
 
 // ---- navigation
