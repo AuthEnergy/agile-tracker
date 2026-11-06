@@ -10,9 +10,9 @@
 <script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 <style>
 :root{
-  --bg:#eef0f6; --bg2:#f8f9fc; --card:#ffffff; --tile:#f4f5fa; --text:#12151f; --muted:#6b7385; --line:#e6e9f2; --accent:#6d4aff;
-  --neg:#10b981; --cheap:#4ade80; --mid:#fbbf24; --high:#fb923c; --peak:#f43f5e;
-  --shadow:0 1px 2px rgba(20,24,40,.04),0 8px 24px rgba(20,24,40,.06);
+  --bg:#e6e9f2; --bg2:#f0f2f8; --card:#ffffff; --tile:#f4f5fa; --text:#0e1322; --muted:#4d566b; --line:#d0d6e4; --accent:#5b34f0;
+  --neg:#059669; --cheap:#16a34a; --mid:#f59e0b; --high:#ea580c; --peak:#e11d48;
+  --shadow:0 1px 2px rgba(14,19,34,.08),0 8px 24px rgba(14,19,34,.09);
 }
 :root[data-theme="dark"]{
   --bg:#080b12; --bg2:#0d111b; --card:#121724; --tile:#1a2030; --text:#f1f3f9; --muted:#8c95aa; --line:#222a3b; --accent:#a58bff;
@@ -80,7 +80,7 @@ button.pill svg{width:18px;height:18px}
 
 .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
 @media (max-width:640px){.tiles{grid-template-columns:repeat(2,1fr)}}
-.tile{--tc:var(--accent);background:linear-gradient(155deg,color-mix(in srgb,var(--tc) 12%,var(--card)),var(--card) 80%);border:1px solid color-mix(in srgb,var(--tc) 24%,var(--line));border-radius:22px;padding:14px 16px;box-shadow:var(--shadow)}
+.tile{--tc:var(--accent);background:linear-gradient(155deg,color-mix(in srgb,var(--tc) 13%,var(--card)),var(--card) 80%);border:1px solid color-mix(in srgb,var(--tc) 30%,var(--line));border-radius:22px;padding:14px 16px;box-shadow:var(--shadow)}
 .tile .l{color:var(--muted);font-size:.78rem;font-weight:550;display:flex;align-items:center;gap:6px}
 .tile .l::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--tc);flex:none}
 .tile .v{font-size:1.35rem;font-weight:700;letter-spacing:-.02em;margin-top:2px}
@@ -410,7 +410,7 @@ function drawChart(){
     const bx=x(s.from.getTime())+gap/2, bw=Math.max(1,x(s.to.getTime())-x(s.from.getTime())-gap);
     const y0=y(0), yv=y(s.p), top=Math.min(y0,yv), h=Math.max(3,Math.abs(y0-yv));
     const sel = state.hover===i, isNow = i===nowI;
-    const op = sel||isNow ? 1 : (nowI>=0 && i<nowI ? .38 : .88);
+    const dk=eff()==='dark', op = sel||isNow ? 1 : (nowI>=0 && i<nowI ? (dk?.38:.5) : (dk?.88:.96));
     bars+=`<rect x="${bx}" y="${top}" width="${bw}" height="${h}" rx="${Math.min(bw/2,6)}" fill="${colour(s.p)}" opacity="${op}"/>`;
     if(sel) bars+=`<rect x="${bx-1.5}" y="${top-1.5}" width="${bw+3}" height="${h+3}" rx="${Math.min(bw/2,6)+1}" fill="none" stroke="var(--text)" stroke-width="1.5"/>`;
   });
@@ -458,7 +458,7 @@ function drawMonth(){
     const isSel=dayKey(d.start)===dayKey(state.view), isToday=dayKey(d.start)===dayKey(state.todayStart);
     if(d.n){
       const top=Math.min(y(0),y(d.avg)), h=Math.max(3,Math.abs(y(0)-y(d.avg)));
-      out+=`<rect x="${bx}" y="${top}" width="${w}" height="${h}" rx="${r}" fill="${colour(d.avg)}" opacity="${isSel?1:.7}"/>`;
+      out+=`<rect x="${bx}" y="${top}" width="${w}" height="${h}" rx="${r}" fill="${colour(d.avg)}" opacity="${isSel?1:(eff()==='dark'?.7:.88)}"/>`;
       if(isSel) out+=`<rect x="${bx-1.5}" y="${top-1.5}" width="${w+3}" height="${h+3}" rx="${r+1}" fill="none" stroke="var(--text)" stroke-width="1.5"/>`;
     } else out+=`<rect x="${bx}" y="${m.t+ih-3}" width="${w}" height="3" rx="1.5" fill="var(--line)"/>`;
     const ti = days.findIndex(x=>dayKey(x.start)===dayKey(state.todayStart));
