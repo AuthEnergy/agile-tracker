@@ -33,7 +33,7 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Smoke tests (mocked APIs: render, navigation, theme, mobile, caching)
+      - name: Smoke tests (mocked APIs - render, navigation, theme, mobile, caching)
         run: npm test
 
       - name: Upload screenshots
