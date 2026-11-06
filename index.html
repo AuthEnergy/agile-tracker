@@ -55,16 +55,19 @@ button.pill svg{width:18px;height:18px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:28px;box-shadow:var(--shadow)}
 .hero{padding:22px;position:relative;overflow:hidden;
   background:linear-gradient(135deg,color-mix(in srgb,var(--band,var(--accent)) 20%,var(--card)),var(--card) 70%)}
-.hero-top{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.hero-top{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px}
 .chip{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border-radius:999px;font-size:.82rem;font-weight:650;
   background:color-mix(in srgb,var(--band,var(--accent)) 18%,transparent);color:var(--text)}
 .chip i{width:8px;height:8px;border-radius:50%;background:var(--band,var(--accent))}
-.clock{font-size:.9rem;color:var(--muted);text-align:right}
+.clock{font-size:.9rem;color:var(--muted);text-align:left;line-height:1.3}
 .clock b{color:var(--text);font-weight:650}
-.hero-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,350px);gap:16px 28px;align-items:end}
+.hero-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,380px);gap:16px 28px;align-items:stretch}
+.hero-left{display:flex;flex-direction:column;justify-content:space-between;gap:10px;min-width:0}
+.hero-price{margin-top:auto}
 @media (max-width:700px){.hero-body{grid-template-columns:minmax(0,1fr)}}
-.why{background:color-mix(in srgb,var(--card) 62%,transparent);border:1px solid color-mix(in srgb,var(--band,var(--accent)) 28%,var(--line));border-radius:20px;padding:13px 16px;font-size:.88rem;line-height:1.4}
+.why{display:flex;flex-direction:column;justify-content:center;background:color-mix(in srgb,var(--card) 62%,transparent);border:1px solid color-mix(in srgb,var(--band,var(--accent)) 28%,var(--line));border-radius:20px;padding:13px 16px;font-size:.88rem;line-height:1.4}
 .why[hidden]{display:none}
+.why ul{margin-bottom:0}
 .why-h{font-weight:700;margin-bottom:6px}
 .why ul{list-style:none;margin:0;padding:0;display:grid;gap:5px}
 .why li{display:flex;gap:8px}
@@ -127,14 +130,16 @@ svg text{fill:var(--muted);font-size:11px;font-family:inherit}
   </header>
 
   <section class="card hero" id="hero">
-    <div class="hero-top">
-      <span class="chip"><i></i><span id="status">Loading…</span></span>
-      <div class="clock num"><b id="clock">--:--</b> UK<br><span id="date"></span></div>
-    </div>
     <div class="hero-body">
-      <div>
-        <div class="price num"><span id="now">–</span><small>p/kWh</small></div>
-        <div class="sub num" id="nowslot">inc. VAT</div>
+      <div class="hero-left">
+        <div class="hero-top">
+          <div class="clock num"><b id="clock">--:--</b> UK<br><span id="date"></span></div>
+          <span class="chip"><i></i><span id="status">Loading…</span></span>
+        </div>
+        <div class="hero-price">
+          <div class="price num"><span id="now">–</span><small>p/kWh</small></div>
+          <div class="sub num" id="nowslot">inc. VAT</div>
+        </div>
       </div>
       <div class="why" id="why" hidden>
         <div class="why-h" id="whyh"></div>
