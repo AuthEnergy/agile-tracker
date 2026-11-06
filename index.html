@@ -40,18 +40,18 @@
   --bg:#e6e9f2; --bg2:#f0f2f8; --card:#ffffff; --text:#0e1322; --muted:#4d566b; --line:#d0d6e4; --accent:#5b34f0;
   --neg:#059669; --cheap:#16a34a; --mid:#f59e0b; --high:#ea580c; --peak:#e11d48;
   --shadow:0 1px 2px rgba(14,19,34,.08),0 8px 24px rgba(14,19,34,.09);
-  --f-wind:#0d9488; --f-solar:#f59e0b; --f-nuclear:#7c3aed; --f-imp:#2563eb; --f-gas:#6b7280; --f-other:#bcc3d1;
+  --f-wind:#0d9488; --f-solar:#f59e0b; --f-nuclear:#7c3aed; --f-imp:#6b7280; --f-gas:#2563eb; --f-other:#bcc3d1;
 }
 :root[data-theme="dark"]{
   --bg:#080b12; --bg2:#0d111b; --card:#121724; --text:#f1f3f9; --muted:#8c95aa; --line:#222a3b; --accent:#a58bff;
   --neg:#34d399; --cheap:#4ade80; --mid:#fcd34d; --high:#fb923c; --peak:#fb7185;
-  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35); --f-wind:#2dd4bf; --f-solar:#fbbf24; --f-nuclear:#a78bfa; --f-imp:#60a5fa; --f-gas:#94a3b8; --f-other:#475569;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35); --f-wind:#2dd4bf; --f-solar:#fbbf24; --f-nuclear:#a78bfa; --f-imp:#94a3b8; --f-gas:#60a5fa; --f-other:#475569;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --bg:#080b12; --bg2:#0d111b; --card:#121724; --text:#f1f3f9; --muted:#8c95aa; --line:#222a3b; --accent:#a58bff;
     --neg:#34d399; --cheap:#4ade80; --mid:#fcd34d; --high:#fb923c; --peak:#fb7185;
-    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35); --f-wind:#2dd4bf; --f-solar:#fbbf24; --f-nuclear:#a78bfa; --f-imp:#60a5fa; --f-gas:#94a3b8; --f-other:#475569;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35); --f-wind:#2dd4bf; --f-solar:#fbbf24; --f-nuclear:#a78bfa; --f-imp:#94a3b8; --f-gas:#60a5fa; --f-other:#475569;
   }
 }
 *{box-sizing:border-box}
@@ -506,8 +506,8 @@ $('month').addEventListener('pointerleave', () => drawMonth());
 
 // ---- tariff overlay (other Octopus tariffs, unit rate inc. VAT, direct debit)
 const TARIFFS = ['Flexible Octopus','Octopus Tracker','Octopus Go','Intelligent Octopus Go','Cosy Octopus'];
-let cmpName = store.get('cmp'); if (cmpName !== 'none' && !TARIFFS.includes(cmpName)) cmpName = TARIFFS[0];
-for (const n of TARIFFS) $('cmpsel').add(new Option(n, n)); $('cmpsel').add(new Option('None', 'none')); $('cmpsel').value = cmpName;
+let cmpName = store.get('cmp'); if (!TARIFFS.includes(cmpName)) cmpName = 'none';
+$('cmpsel').add(new Option('None', 'none')); for (const n of TARIFFS) $('cmpsel').add(new Option(n, n)); $('cmpsel').value = cmpName;
 $('cmpsel').onchange = e => { cmpName = e.target.value; store.set('cmp', cmpName); loadOverlay(); };
 const ovCache = new Map(), prodCache = new Map();
 const toWin = r => ({from:new Date(r.valid_from), to:r.valid_to?new Date(r.valid_to):null, p:r.value_inc_vat});

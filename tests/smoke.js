@@ -60,7 +60,12 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
     check((await t('#status')).length > 3, `${sc.name}: status chip empty`);
     check(await page.locator('#chart rect').count() >= 48, `${sc.name}: main chart has fewer than 48 bars`);
     check(await page.locator('#month rect').count() >= 28, `${sc.name}: 30-day chart has too few bars`);
-    check(await page.locator('#chart path').count() >= 2, `${sc.name}: tariff overlay line missing`);
+    check(await page.inputValue('#cmpsel') === 'none', `${sc.name}: compare should default to none`);
+    const p0 = await page.locator('#chart path').count();
+    await page.selectOption('#cmpsel', 'Flexible Octopus');
+    await page.waitForFunction(n => document.querySelectorAll('#chart path').length > n, p0, { timeout: 5000 }).catch(() => {});
+    await page.waitForLoadState('networkidle').catch(() => {});
+    check(await page.locator('#chart path').count() > p0, `${sc.name}: tariff overlay line missing after selecting a tariff`);
     check(!(await page.locator('#why').isHidden()) && (await t('#whyh')).startsWith('Why today'), `${sc.name}: explanation missing`);
     check(await page.locator('#whymix .mixbar i').count() >= 3, `${sc.name}: generation mix bar missing`);
     check(await page.isEnabled('#nextd'), `${sc.name}: next-day should be enabled when tomorrow is published`);
