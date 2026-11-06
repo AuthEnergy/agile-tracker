@@ -351,7 +351,7 @@ function drawChart(){
   const nowI = curIdx(S), tn = Date.now();
   let bars='';
   S.forEach((s,i)=>{
-    const gap = iw/S.length > 8 ? 2.5 : 1.5;
+    const gap = Math.max(2, iw/S.length*0.3);
     const bx=x(s.from.getTime())+gap/2, bw=Math.max(1,x(s.to.getTime())-x(s.from.getTime())-gap);
     const y0=y(0), yv=y(s.p), top=Math.min(y0,yv), h=Math.max(3,Math.abs(y0-yv));
     const sel = state.hover===i, isNow = i===nowI;
@@ -399,7 +399,7 @@ function drawMonth(){
   const y=v=>m.t+ih*(1-(v-lo)/(hi-lo));
   let out='';
   days.forEach((d,i)=>{
-    const bx=m.l+i*bw+1, w=Math.max(2,bw-2), r=Math.min(w/2,4);
+    const gp=Math.max(2,bw*0.22), bx=m.l+i*bw+gp/2, w=Math.max(2,bw-gp), r=Math.min(w/2,4);
     const isSel=dayKey(d.start)===dayKey(state.view), isToday=dayKey(d.start)===dayKey(state.todayStart);
     if(d.n){
       const top=Math.min(y(0),y(d.avg)), h=Math.max(3,Math.abs(y(0)-y(d.avg)));
