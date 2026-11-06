@@ -79,6 +79,16 @@ button.pill svg{width:18px;height:18px}
 .tip{position:absolute;pointer-events:none;background:var(--text);color:var(--bg);border-radius:14px;padding:7px 12px;
   box-shadow:0 8px 24px rgba(0,0,0,.25);font-size:.82rem;white-space:nowrap;transform:translate(-50%,-100%);display:none;line-height:1.25}
 .tip b{display:block;font-size:.95rem}
+.daynav{display:flex;gap:6px;align-items:center}
+.pill.sm{height:32px;font-size:.82rem;padding:0 12px;box-shadow:none}
+button.pill.sm{width:32px;padding:0;font-size:1.1rem;line-height:1}
+button.pill.sm.txt{width:auto;padding:0 12px;font-size:.82rem;font-weight:600}
+.pill:disabled{opacity:.35;cursor:default}
+.charthead span.sm{font-weight:500}
+.monthcard{padding:16px 14px 14px}
+#month{display:block;width:100%;height:110px;cursor:pointer}
+.mread{padding:8px 6px 0;color:var(--muted);font-size:.8rem;min-height:1.9em}
+.mread b{color:var(--text);font-weight:650}
 .legend{display:flex;flex-wrap:wrap;gap:6px 14px;padding:10px 6px 0;color:var(--muted);font-size:.75rem}
 .legend span{display:inline-flex;align-items:center;gap:6px}
 .legend i{width:10px;height:10px;border-radius:4px}
@@ -112,18 +122,25 @@ svg text{fill:var(--muted);font-size:11px;font-family:inherit}
   <section class="tiles">
     <div class="tile"><div class="l">Next half-hour</div><div class="v num" id="next">–</div><div class="t num" id="nextt">&nbsp;</div></div>
     <div class="tile"><div class="l">Cheapest ahead</div><div class="v num" id="ahead">–</div><div class="t num" id="aheadt">&nbsp;</div></div>
-    <div class="tile"><div class="l">Peak today</div><div class="v num" id="max">–</div><div class="t num" id="maxt">&nbsp;</div></div>
-    <div class="tile"><div class="l">Average today</div><div class="v num" id="avg">–</div><div class="t num" id="mint">&nbsp;</div></div>
+    <div class="tile"><div class="l">Peak</div><div class="v num" id="max">–</div><div class="t num" id="maxt">&nbsp;</div></div>
+    <div class="tile"><div class="l">Average</div><div class="v num" id="avg">–</div><div class="t num" id="mint">&nbsp;</div></div>
   </section>
 
   <section class="card chartcard">
-    <div class="charthead"><h2>Today</h2><span>p/kWh inc. VAT · tap or hover a bar</span></div>
+    <div class="charthead"><div><h2 id="daytitle">Today</h2><span class="sm" id="daysub">p/kWh inc. VAT</span></div>
+      <div class="daynav"><button id="prev" class="pill sm" aria-label="Previous day" title="Previous day (←)">‹</button><button id="todaybtn" class="pill sm txt">Today</button><button id="nextd" class="pill sm" aria-label="Next day" title="Next day (→)">›</button></div></div>
     <svg id="chart" role="img" aria-label="Agile prices today"></svg>
     <div class="tip" id="tip"></div>
     <div class="legend">
       <span><i style="background:var(--neg)"></i>Negative</span><span><i style="background:var(--cheap)"></i>Cheap</span>
       <span><i style="background:var(--mid)"></i>Average</span><span><i style="background:var(--high)"></i>Pricey</span><span><i style="background:var(--peak)"></i>Peak</span>
     </div>
+  </section>
+  <section class="card monthcard">
+    <div class="charthead"><div><h2 id="monthtitle">Month</h2><span class="sm" id="monthsub">Daily average, p/kWh</span></div>
+      <div class="daynav"><button id="mprev" class="pill sm" aria-label="Previous month">‹</button><button id="mnext" class="pill sm" aria-label="Next month">›</button></div></div>
+    <svg id="month" role="img" aria-label="Daily average prices this month"></svg>
+    <div class="mread" id="mread"></div>
   </section>
   <div class="err" id="err" role="alert"></div>
   <div class="foot">Octopus Energy public API, fetched directly in your browser · <span id="prod"></span><span id="auto"></span></div>
@@ -135,27 +152,60 @@ const TZ = 'Europe/London';
 const REGIONS = {A:'Eastern England',B:'East Midlands',C:'London',D:'Merseyside & N. Wales',E:'West Midlands',F:'North East England',
   G:'North West England',H:'Southern England',J:'South East England',K:'South Wales',L:'South West England',M:'Yorkshire',
   N:'Southern Scotland',P:'Northern Scotland'};
+const BASE = 'https://api.octopus.energy/v1';
 const $ = id => document.getElementById(id);
 const store = {get(k){try{return localStorage.getItem(k)}catch{return null}},set(k,v){try{localStorage.setItem(k,v)}catch{}}};
-let state = {region: store.get('region') || store.get('regionAuto') || 'C', slots: [], product: null, hover: null};
 const params = new URLSearchParams(location.search);
 const DEMO = params.has('demo');
+let state = {region: store.get('region') || store.get('regionAuto') || 'C', tariff:null, tariffRegion:null,
+  pc:new Map(), data:new Map(), view:null, vm:null, todayStart:null, slots:[], today:[], hasNext:false, hover:null};
 
 // ---- theme
 const eff = () => document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-function applyTheme(t){ if(t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme; document.documentElement.dataset.eff = eff(); draw(); }
-const saved = store.get('theme'); applyTheme(saved);
-$('theme').onclick = () => {
-  const next = eff() === 'dark' ? 'light' : 'dark'; store.set('theme', next); applyTheme(next);
-};
+function applyTheme(t){ if(t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme; document.documentElement.dataset.eff = eff(); drawAll(); }
+{ const t=store.get('theme'); if(t) document.documentElement.dataset.theme=t; document.documentElement.dataset.eff=eff(); }
+$('theme').onclick = () => { const next = eff()==='dark'?'light':'dark'; store.set('theme', next); applyTheme(next); };
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => applyTheme(store.get('theme')));
 
 // ---- region
 for (const [k,v] of Object.entries(REGIONS)) $('region').add(new Option(`${k} – ${v}`, k));
 $('region').value = state.region;
-$('region').onchange = e => { $('auto').textContent=''; $('region').title=''; state.region = e.target.value; store.set('region', state.region); load(); };
+$('region').onchange = e => { $('auto').textContent=''; $('region').title=''; state.region = e.target.value; store.set('region', state.region);
+  state.tariff=null; state.pc.clear(); state.data.clear(); load(); };
 
-// ---- auto-detect region from IP (browser-side). IP -> postcode (ipapi.co / ipwho.is) -> Octopus GSP lookup -> region letter.
+// ---- UK time helpers
+const fmtTime = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'2-digit',minute:'2-digit',hour12:false});
+const fmtClock = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'2-digit',minute:'2-digit',hour12:false});
+const fmtDate = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,weekday:'long',day:'numeric',month:'long'});
+const fmtDay = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,weekday:'short',day:'numeric',month:'short'});
+const fmtLong = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,weekday:'long',day:'numeric',month:'long'});
+const fmtMonth = new Intl.DateTimeFormat('en-GB',{timeZone:'UTC',month:'long',year:'numeric'});
+const fmtParts = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+const parts = d => Object.fromEntries(fmtParts.formatToParts(d).map(x=>[x.type,x.value]));
+function ukOffsetMs(date){
+  const p = parts(date);
+  return Date.UTC(+p.year,+p.month-1,+p.day,(+p.hour)%24,+p.minute,+p.second) - Math.floor(date.getTime()/1000)*1000;
+}
+function ukDayStart(date){
+  const off = ukOffsetMs(date), local = new Date(date.getTime()+off);
+  const midLocal = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
+  return new Date(midLocal - ukOffsetMs(new Date(midLocal - off)));
+}
+const dayKey = d => { const p=parts(d); return `${p.year}-${p.month}-${p.day}`; };
+const monKey = d => dayKey(d).slice(0,7);
+const nextDay = s => ukDayStart(new Date(s.getTime()+36*3600e3));
+const prevDay = s => ukDayStart(new Date(s.getTime()-12*3600e3));
+const monthBounds = key => { const [y,m]=key.split('-').map(Number);
+  return [ukDayStart(new Date(Date.UTC(y,m-1,1,12))), ukDayStart(new Date(Date.UTC(y,m,1,12)))]; };
+const shiftMonth = (key,n) => { const [y,m]=key.split('-').map(Number); const d=new Date(Date.UTC(y,m-1+n,1)); return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`; };
+const daySlots = (slots,start) => { const e=nextDay(start); return slots.filter(s=>s.from>=start && s.from<e); };
+const pr = v => (v<0?'−':'') + Math.abs(v).toFixed(2) + 'p';
+const BANDS = [[0,'--neg','Negative – paid to use'],[15,'--cheap','Cheap right now'],[25,'--mid','Average price'],[35,'--high','Pricey right now'],[Infinity,'--peak','Peak price']];
+const band = p => BANDS.find(b => p < b[0]);
+const colour = p => getComputedStyle(document.documentElement).getPropertyValue(band(p)[1]).trim();
+const curIdx = S => { const t=Date.now(); return S.findIndex(s => s.from<=t && t<s.to); };
+
+// ---- auto-detect region from IP (browser-side): IP -> postcode (ipapi.co / ipwho.is) -> Octopus GSP lookup -> region letter
 async function detectRegion(){
   const t = ms => new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),ms));
   const j = async u => { const r = await Promise.race([fetch(u), t(4000)]); if(!r.ok) throw new Error(r.status); return r.json(); };
@@ -163,109 +213,88 @@ async function detectRegion(){
   try { const d = await j('https://ipapi.co/json/'); if(d && !d.error) loc = {cc:d.country_code, pc:d.postal}; } catch {}
   if (!loc || !loc.pc) { try { const d = await j('https://ipwho.is/'); if(d && d.success) loc = {cc:d.country_code, pc:d.postal}; } catch {} }
   if (!loc || loc.cc !== 'GB' || !loc.pc) return null;
-  const pc = loc.pc.trim().split(/\s+/)[0]; // outward code, e.g. N15
-  const d = await j(`https://api.octopus.energy/v1/industry/grid-supply-points/?postcode=${encodeURIComponent(pc)}`);
+  const pc = loc.pc.trim().split(/\s+/)[0];
+  const d = await j(`${BASE}/industry/grid-supply-points/?postcode=${encodeURIComponent(pc)}`);
   const ids = [...new Set((d.results||[]).map(r => (r.group_id||'').replace('_','')))].filter(x => REGIONS[x]);
-  return ids.length === 1 ? {region: ids[0], pc} : null; // ambiguous outcode -> don't guess
+  return ids.length === 1 ? {region: ids[0]} : null;
 }
-async function init(){
-  if (!store.get('region') && !DEMO) {
-    try {
-      const auto = store.get('regionAuto') ? {region: store.get('regionAuto')} : await detectRegion();
-      if (auto) { state.region = auto.region; store.set('regionAuto', auto.region); $('region').value = auto.region;
-        $('region').title = 'Auto-detected from your IP address – change it to override'; $('auto').textContent = ' · region auto-detected from your IP (change it above to override)'; }
-    } catch(e){ console.warn('region detect failed', e); }
-  }
-  load();
-}
-
-// ---- UK time helpers
-const fmtTime = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'2-digit',minute:'2-digit',hour12:false});
-const fmtClock = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
-const fmtDate = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,weekday:'long',day:'numeric',month:'long'});
-const fmtParts = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
-function ukOffsetMs(date){ // ms that UK local time is ahead of UTC
-  const p = Object.fromEntries(fmtParts.formatToParts(date).map(x=>[x.type,x.value]));
-  const asUTC = Date.UTC(+p.year,+p.month-1,+p.day,(+p.hour)%24,+p.minute,+p.second);
-  return asUTC - Math.floor(date.getTime()/1000)*1000;
-}
-function ukDayStart(date){ // UTC Date for 00:00 UK on the UK calendar day of `date`
-  const off = ukOffsetMs(date);
-  const local = new Date(date.getTime() + off);
-  const midLocal = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
-  let guess = new Date(midLocal - off);
-  const off2 = ukOffsetMs(guess); // handle DST change on that day
-  return new Date(midLocal - off2);
-}
-const pr = v => (v<0?'−':'') + Math.abs(v).toFixed(2) + 'p';
-const BANDS = [[0,'--neg','Negative – paid to use'],[15,'--cheap','Cheap right now'],[25,'--mid','Average price'],[35,'--high','Pricey right now'],[Infinity,'--peak','Peak price']];
-const band = p => BANDS.find(b => p < b[0]);
 
 // ---- data
 async function getJSON(url){ const r = await fetch(url); if(!r.ok) throw new Error(`${r.status} ${url}`); return r.json(); }
 async function getAll(url){ let out=[]; while(url){ const d=await getJSON(url); out=out.concat(d.results||[]); url=d.next; } return out; }
-// Same discovery approach as agile-compare: find the live product by display name, never hardcode the version.
+// Same discovery approach as agile-compare: live product by display name, never a hardcoded version.
 async function findTariff(){
-  const key = state.region;
-  if (state.tariff && state.tariffRegion===key) return state.tariff;
-  const base='https://api.octopus.energy/v1';
-  const products = await getAll(`${base}/products/?brand=OCTOPUS_ENERGY&is_variable=true&page_size=100`);
+  if (state.tariff && state.tariffRegion===state.region) return state.tariff;
+  const products = await getAll(`${BASE}/products/?brand=OCTOPUS_ENERGY&is_variable=true&page_size=100`);
   const c = products.filter(p => p.display_name==='Agile Octopus' && !p.is_business && !p.is_prepay);
   if(!c.length) throw new Error('Could not find the live Agile Octopus product');
   const prod = (c.find(p=>!p.available_to) || c[0]).code;
-  const detail = await getJSON(`${base}/products/${prod}/`);
-  const rt = (detail.single_register_electricity_tariffs||{})['_'+key];
+  const detail = await getJSON(`${BASE}/products/${prod}/`);
+  const rt = (detail.single_register_electricity_tariffs||{})['_'+state.region];
   const t = rt && (rt.direct_debit_monthly || Object.values(rt)[0]);
-  if(!t) throw new Error(`No Agile tariff for region ${key}`);
-  state.product=prod; state.tariffRegion=key;
+  if(!t) throw new Error(`No Agile tariff for region ${state.region}`);
+  state.tariffRegion = state.region;
   return state.tariff = {product:prod, code:t.code};
 }
-function demoSlots(start){
+function demoSlots(start, k){
   const out=[]; for(let i=0;i<48;i++){
-    const h=i/2; const base=18+8*Math.sin((h-4)/24*Math.PI*2)+(h>=16&&h<19?18:0)+(h<5?-22:0)+Math.sin(i*1.7)*2;
+    const h=i/2, base=18+k+8*Math.sin((h-4)/24*Math.PI*2)+(h>=16&&h<19?18:0)+(h<5?-22:0)+Math.sin(i*1.7+k)*2;
     out.push({from:new Date(start.getTime()+i*1800e3), to:new Date(start.getTime()+(i+1)*1800e3), p:+base.toFixed(2)});
   } return out;
 }
+function getMonth(key){
+  if (state.pc.has(key)) return state.pc.get(key);
+  const prom = (async () => {
+    const [a,b] = monthBounds(key); let slots=[];
+    if (DEMO){ let k=0; for(let s=a; s<b && s<=state.todayStart; s=nextDay(s)) slots.push(...demoSlots(s, Math.sin(k++)*6)); }
+    else {
+      const {product, code} = await findTariff();
+      const rows = await getAll(`${BASE}/products/${product}/electricity-tariffs/${code}/standard-unit-rates/?period_from=${a.toISOString()}&period_to=${b.toISOString()}&page_size=1500`);
+      slots = rows.map(r => ({from:new Date(r.valid_from), to:new Date(r.valid_to), p:r.value_inc_vat})).sort((x,y)=>x.from-y.from);
+    }
+    state.data.set(key, slots); return slots;
+  })();
+  state.pc.set(key, prom); prom.catch(() => state.pc.delete(key));
+  return prom;
+}
 async function load(){
   $('err').style.display='none';
-  const start = ukDayStart(new Date());
-  const end = new Date(start.getTime() + 25*3600e3); // covers 23/25h days, trimmed below
-  const endDay = ukDayStart(end);
+  state.todayStart = ukDayStart(new Date());
+  if (!state.view) state.view = state.todayStart;
+  if (!state.vm) state.vm = monKey(state.view);
   try{
-    if (DEMO){ state.slots = demoSlots(start); state.product='DEMO'; }
-    else {
-      const {product:prod, code:tariff} = await findTariff();
-      const url = `https://api.octopus.energy/v1/products/${prod}/electricity-tariffs/${tariff}/standard-unit-rates/` +
-        `?period_from=${start.toISOString()}&period_to=${endDay.toISOString()}&page_size=100`;
-      const d = await getJSON(url);
-      state.slots = d.results.map(r => ({from:new Date(r.valid_from), to:new Date(r.valid_to), p:r.value_inc_vat}))
-        .sort((a,b)=>a.from-b.from);
-      if(!state.slots.length) throw new Error('No prices returned for today yet');
-    }
-    $('prod').textContent = state.product;
+    const nd = nextDay(state.view);
+    const [tm, vmS, ndm] = await Promise.all([getMonth(monKey(state.todayStart)), getMonth(monKey(state.view)), getMonth(monKey(nd))]);
+    await getMonth(state.vm);
+    state.today = daySlots(tm, state.todayStart);
+    state.slots = daySlots(vmS, state.view);
+    state.hasNext = daySlots(ndm, nd).length > 0;
+    $('prod').textContent = DEMO ? 'DEMO' : state.tariff.product;
   }catch(e){
     console.error(e); $('err').textContent = 'Could not load prices: ' + e.message; $('err').style.display='block';
   }
   render();
 }
+function refresh(){ // drop current & future months so new prices are picked up
+  const ck = monKey(new Date());
+  for (const k of [...state.pc.keys()]) if (k >= ck) { state.pc.delete(k); }
+  load();
+}
 
 // ---- rendering
-function colour(p){
-  const s = getComputedStyle(document.documentElement);
-  return s.getPropertyValue(band(p)[1]).trim();
+function dayLabel(d){
+  const k=dayKey(d), t=dayKey(state.todayStart);
+  if(k===t) return 'Today';
+  if(k===dayKey(prevDay(state.todayStart))) return 'Yesterday';
+  if(k===dayKey(nextDay(state.todayStart))) return 'Tomorrow';
+  return fmtLong.format(d);
 }
-function current(){ const t=Date.now(); return state.slots.findIndex(s => s.from<=t && t<s.to); }
 function render(){
-  const t = new Date();
-  $('clock').textContent = fmtClock.format(t).slice(0,5); $('date').textContent = fmtDate.format(t);
-  const S = state.slots, i = current(), hero = $('hero');
+  const t = new Date(), S = state.today, i = curIdx(S), hero = $('hero');
+  $('clock').textContent = fmtClock.format(t); $('date').textContent = fmtDate.format(t);
   if (S.length){
-    const ps = S.map(s=>s.p), at = p => fmtTime.format(S[ps.indexOf(p)].from);
-    const mx = Math.max(...ps), mn = Math.min(...ps);
-    $('max').textContent = pr(mx); $('maxt').textContent = 'at ' + at(mx);
-    $('avg').textContent = pr(ps.reduce((a,b)=>a+b,0)/ps.length); $('mint').textContent = 'low ' + pr(mn) + ' at ' + at(mn);
     const ahead = S.filter((s,k)=>k>i);
-    if (ahead.length){ const m = ahead.reduce((a,b)=>b.p<a.p?b:a); $('ahead').textContent = pr(m.p); $('aheadt').textContent = 'at ' + fmtTime.format(m.from); }
+    if (ahead.length){ const m = ahead.reduce((a,b)=>b.p<a.p?b:a); $('ahead').textContent = pr(m.p); $('aheadt').textContent = 'at ' + fmtTime.format(m.from) + ' today'; }
     else { $('ahead').textContent = '–'; $('aheadt').textContent = 'none left today'; }
     if (i>=0){
       const b = band(S[i].p); hero.style.setProperty('--band', `var(${b[1]})`);
@@ -273,15 +302,29 @@ function render(){
       $('now').textContent = (S[i].p<0?'−':'') + Math.abs(S[i].p).toFixed(2);
       $('nowslot').innerHTML = `<b>${fmtTime.format(S[i].from)}–${fmtTime.format(S[i].to)}</b> · inc. VAT`;
       if (S[i+1]){ $('next').textContent = pr(S[i+1].p); $('nextt').textContent = 'from ' + fmtTime.format(S[i+1].from) + (S[i+1].p>S[i].p?' ↑':' ↓'); }
-      else { $('next').textContent = 'tomorrow'; $('nextt').textContent = ' '; }
+      else { $('next').textContent = 'tomorrow'; $('nextt').innerHTML = '&nbsp;'; }
     } else { $('now').textContent='–'; $('status').textContent='No current slot'; }
-  }
-  draw();
+  } else { $('now').textContent='–'; $('status').textContent='No prices yet'; }
+  // viewed day
+  const V = state.slots, at = p => fmtTime.format(V[V.map(s=>s.p).indexOf(p)].from);
+  $('daytitle').textContent = dayLabel(state.view);
+  $('daysub').textContent = (dayLabel(state.view).length>9 ? '' : fmtDay.format(state.view) + ' · ') + 'p/kWh inc. VAT';
+  if (V.length){
+    const ps=V.map(s=>s.p), mx=Math.max(...ps), mn=Math.min(...ps);
+    $('max').textContent = pr(mx); $('maxt').textContent = 'at ' + at(mx);
+    $('avg').textContent = pr(ps.reduce((a,b)=>a+b,0)/ps.length); $('mint').textContent = 'low ' + pr(mn) + ' at ' + at(mn);
+  } else { $('max').textContent=$('avg').textContent='–'; $('maxt').textContent='no data'; $('mint').innerHTML='&nbsp;'; }
+  const isToday = dayKey(state.view)===dayKey(state.todayStart);
+  $('todaybtn').disabled = isToday; $('nextd').disabled = !state.hasNext;
+  $('nextd').title = state.hasNext ? 'Next day (→)' : 'Tomorrow\'s prices aren\'t published yet (usually ~4pm)';
+  drawAll();
 }
-function draw(){
+function drawAll(){ drawChart(); drawMonth(); }
+
+function drawChart(){
   const svg = $('chart'), S = state.slots, W = svg.clientWidth || 600, H = svg.clientHeight || 300;
   svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-  if(!S.length){ svg.innerHTML=''; return; }
+  if(!S.length){ svg.innerHTML=`<text x="${W/2}" y="${H/2}" text-anchor="middle" style="font-size:14px">No prices published for this day</text>`; svg._geom=null; return; }
   const m = {l:30,r:6,t:30,b:24}, iw = W-m.l-m.r, ih = H-m.t-m.b;
   const ps = S.map(s=>s.p), lo = Math.min(0,...ps), hi = Math.max(...ps)*1.06||1;
   const y = v => m.t + ih*(1-(v-lo)/(hi-lo));
@@ -289,15 +332,14 @@ function draw(){
   const x = t => m.l + iw*(t-t0)/(t1-t0);
   const step = (hi-lo)>60?20:(hi-lo)>25?10:5;
   let g='';
-  for(let v=Math.ceil(lo/step)*step; v<=hi; v+=step){
+  for(let v=Math.ceil(lo/step)*step; v<=hi; v+=step)
     g+=`<line x1="${m.l}" x2="${W-m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="${v===0?1.5:1}"/><text x="${m.l-8}" y="${y(v)+4}" text-anchor="end">${v}</text>`;
-  }
   const hrStep = W<520 ? 6 : 3;
   for(let k=0;k<=24;k+=hrStep){
     const tt = t0 + k*3600e3; if(tt>t1) break;
     g+=`<text x="${x(tt)}" y="${H-6}" text-anchor="${k===0?'start':(k===24?'end':'middle')}">${fmtTime.format(new Date(tt))}</text>`;
   }
-  const nowI = current(), tn = Date.now();
+  const nowI = curIdx(S), tn = Date.now();
   let bars='';
   S.forEach((s,i)=>{
     const gap = iw/S.length > 8 ? 2.5 : 1.5;
@@ -319,7 +361,63 @@ function draw(){
   svg._geom = {m,iw,t0,t1,W,H,x};
 }
 
-// ---- interaction
+// ---- month view
+function monthDays(){
+  const key=state.vm, [a,b]=monthBounds(key), slots=state.data.get(key)||[], days=[];
+  for(let s=a; s<b; s=nextDay(s)){
+    const d=daySlots(slots,s), ps=d.map(x=>x.p);
+    days.push({start:s, n:d.length, avg:ps.length?ps.reduce((u,v)=>u+v,0)/ps.length:null, min:ps.length?Math.min(...ps):null, max:ps.length?Math.max(...ps):null});
+  }
+  return days;
+}
+const daySummary = d => d.n ? `<b>${fmtDay.format(d.start)}</b> · avg ${pr(d.avg)} · low ${pr(d.min)} · high ${pr(d.max)}` : `<b>${fmtDay.format(d.start)}</b> · no data`;
+function drawMonth(){
+  if(!state.vm || !state.view) return;
+  const svg=$('month'), W=svg.clientWidth||600, H=svg.clientHeight||110;
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const days=monthDays(), n=days.length, [a]=monthBounds(state.vm);
+  $('monthtitle').textContent = fmtMonth.format(new Date(Date.UTC(+state.vm.slice(0,4), +state.vm.slice(5)-1, 15)));
+  const withData=days.filter(d=>d.n), mavg=withData.length?withData.reduce((s,d)=>s+d.avg,0)/withData.length:null;
+  $('monthsub').textContent = mavg===null ? 'No data' : `Daily average · month avg ${pr(mavg)}`;
+  const ck=monKey(state.todayStart);
+  $('mnext').disabled = state.vm >= ck;
+  const m={l:2,r:2,t:6,b:18}, iw=W-m.l-m.r, ih=H-m.t-m.b, bw=iw/n;
+  const avgs=withData.map(d=>d.avg), lo=Math.min(0,...(avgs.length?avgs:[0])), hi=(Math.max(...(avgs.length?avgs:[1]))*1.08)||1;
+  const y=v=>m.t+ih*(1-(v-lo)/(hi-lo));
+  let out='';
+  days.forEach((d,i)=>{
+    const bx=m.l+i*bw+1, w=Math.max(2,bw-2), r=Math.min(w/2,4);
+    const isSel=dayKey(d.start)===dayKey(state.view), isToday=dayKey(d.start)===dayKey(state.todayStart);
+    if(d.n){
+      const top=Math.min(y(0),y(d.avg)), h=Math.max(3,Math.abs(y(0)-y(d.avg)));
+      out+=`<rect x="${bx}" y="${top}" width="${w}" height="${h}" rx="${r}" fill="${colour(d.avg)}" opacity="${isSel?1:.7}"/>`;
+      if(isSel) out+=`<rect x="${bx-1.5}" y="${top-1.5}" width="${w+3}" height="${h+3}" rx="${r+1}" fill="none" stroke="var(--text)" stroke-width="1.5"/>`;
+    } else out+=`<rect x="${bx}" y="${m.t+ih-3}" width="${w}" height="3" rx="1.5" fill="var(--line)"/>`;
+    const dn=i+1;
+    if(dn===1||dn%7===1&&dn<n-2||isToday) out+=`<text x="${bx+w/2}" y="${H-4}" text-anchor="middle" style="${isToday?'fill:var(--accent);font-weight:700':''}">${dn}</text>`;
+  });
+  svg.innerHTML = out; svg._g={m,iw,n,days};
+  const sel=days.find(d=>dayKey(d.start)===dayKey(state.view));
+  $('mread').innerHTML = sel ? daySummary(sel) : 'Tap a day to view it';
+}
+function monthPick(e){ const svg=$('month'), g=svg._g; if(!g) return null;
+  const r=svg.getBoundingClientRect(), px=(e.clientX-r.left)*(svg.viewBox.baseVal.width/r.width);
+  const i=Math.floor((px-g.m.l)/(g.iw/g.n)); return g.days[i]||null; }
+$('month').addEventListener('click', e => { const d=monthPick(e); if(d && d.n){ state.view=d.start; load(); } });
+$('month').addEventListener('pointermove', e => { const d=monthPick(e); if(d) $('mread').innerHTML=daySummary(d); });
+$('month').addEventListener('pointerleave', () => drawMonth());
+
+// ---- navigation
+function go(view){ state.view=view; state.vm=monKey(view); state.hover=null; $('tip').style.display='none'; load(); }
+$('prev').onclick = () => go(prevDay(state.view));
+$('nextd').onclick = () => { if(state.hasNext) go(nextDay(state.view)); };
+$('todaybtn').onclick = () => go(state.todayStart);
+$('mprev').onclick = () => { state.vm=shiftMonth(state.vm,-1); load(); };
+$('mnext').onclick = () => { if(state.vm < monKey(state.todayStart)){ state.vm=shiftMonth(state.vm,1); load(); } };
+addEventListener('keydown', e => { if(/SELECT|INPUT/.test(e.target.tagName)) return;
+  if(e.key==='ArrowLeft') $('prev').click(); else if(e.key==='ArrowRight') $('nextd').click(); });
+
+// ---- chart hover/touch
 function pointer(e){
   const svg=$('chart'), g=svg._geom; if(!g) return;
   const r=svg.getBoundingClientRect(), px=(e.clientX-r.left)*(g.W/r.width);
@@ -333,23 +431,35 @@ function pointer(e){
   const cx=(g.x(s.from.getTime())+g.x(s.to.getTime()))/2*(r.width/g.W)+(r.left-wr.left);
   tip.style.left=Math.min(Math.max(cx,60),wr.width-60)+'px';
   tip.style.top=Math.max(56,(e.clientY-wr.top)-14)+'px';
-  draw();
+  drawChart();
 }
-function leave(){ state.hover=null; $('tip').style.display='none'; draw(); }
+function leave(){ state.hover=null; $('tip').style.display='none'; drawChart(); }
 const c=$('chart');
 c.addEventListener('pointermove',pointer); c.addEventListener('pointerdown',pointer);
 c.addEventListener('pointerleave',leave); c.addEventListener('pointercancel',leave);
-addEventListener('resize',draw);
+addEventListener('resize',drawAll);
 
-// ---- loop: tick every second for clock, refresh data on UK day change / every 15 min
-let lastDay = fmtDate.format(new Date()), lastFetch = Date.now();
+// ---- loop
+let lastDay = dayKey(new Date()), lastFetch = Date.now(), lastMin = '';
 setInterval(()=>{
-  const d = fmtDate.format(new Date());
-  if (d !== lastDay || Date.now()-lastFetch > 15*60e3){ lastDay=d; lastFetch=Date.now(); load(); return; }
-  $('clock').textContent = fmtClock.format(new Date()).slice(0,5);
-  if (new Date().getSeconds()===0) render();
+  const now=new Date(), d=dayKey(now);
+  if (d !== lastDay || Date.now()-lastFetch > 15*60e3){ lastDay=d; lastFetch=Date.now(); refresh(); return; }
+  const mn = fmtClock.format(now);
+  if (mn !== lastMin){ lastMin = mn; if(state.today.length) render(); else $('clock').textContent = mn; }
 },1000);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) render(); });
+
+async function init(){
+  if (!store.get('region') && !DEMO) {
+    try {
+      const auto = store.get('regionAuto') ? {region: store.get('regionAuto')} : await detectRegion();
+      if (auto) { state.region = auto.region; store.set('regionAuto', auto.region); $('region').value = auto.region;
+        $('region').title = 'Auto-detected from your IP address – change it to override';
+        $('auto').textContent = ' · region auto-detected from your IP (change it above to override)'; }
+    } catch(e){ console.warn('region detect failed', e); }
+  }
+  load();
+}
 init();
 })();
 </script>
