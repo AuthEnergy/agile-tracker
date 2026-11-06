@@ -89,6 +89,10 @@ button.pill.sm.txt{width:auto;padding:0 12px;font-size:.82rem;font-weight:600}
 #month{display:block;width:100%;height:110px;cursor:pointer}
 .mread{padding:8px 6px 0;color:var(--muted);font-size:.8rem;min-height:1.9em}
 .mread b{color:var(--text);font-weight:650}
+.cmp{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 6px 0;font-size:.8rem;color:var(--muted)}
+.cmp .swatch{width:18px;height:0;border-top:3px solid var(--text);border-radius:2px}
+select.pill.sm{height:32px;padding-right:28px;padding-left:12px;max-width:60vw}
+.cmpnote{font-size:.75rem}
 .legend{display:flex;flex-wrap:wrap;gap:6px 14px;padding:10px 6px 0;color:var(--muted);font-size:.75rem}
 .legend span{display:inline-flex;align-items:center;gap:6px}
 .legend i{width:10px;height:10px;border-radius:4px}
@@ -131,6 +135,7 @@ svg text{fill:var(--muted);font-size:11px;font-family:inherit}
       <div class="daynav"><button id="prev" class="pill sm" aria-label="Previous day" title="Previous day (←)">‹</button><button id="todaybtn" class="pill sm txt">Today</button><button id="nextd" class="pill sm" aria-label="Next day" title="Next day (→)">›</button></div></div>
     <svg id="chart" role="img" aria-label="Agile prices today"></svg>
     <div class="tip" id="tip"></div>
+    <div class="cmp"><span class="swatch"></span><label for="cmpsel">Compare with</label><select id="cmpsel" class="pill sm"></select><span class="cmpnote" id="cmpnote"></span></div>
     <div class="legend">
       <span><i style="background:var(--neg)"></i>Negative</span><span><i style="background:var(--cheap)"></i>Cheap</span>
       <span><i style="background:var(--mid)"></i>Average</span><span><i style="background:var(--high)"></i>Pricey</span><span><i style="background:var(--peak)"></i>Peak</span>
@@ -158,7 +163,7 @@ const store = {get(k){try{return localStorage.getItem(k)}catch{return null}},set
 const params = new URLSearchParams(location.search);
 const DEMO = params.has('demo');
 let state = {region: store.get('region') || store.get('regionAuto') || 'C', tariff:null, tariffRegion:null,
-  pc:new Map(), data:new Map(), view:null, todayStart:null, slots:[], today:[], hasNext:false, hover:null};
+  pc:new Map(), data:new Map(), view:null, todayStart:null, slots:[], today:[], hasNext:false, tomorrow:false, overlay:null, hover:null};
 
 // ---- theme
 const eff = () => document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
@@ -269,11 +274,14 @@ async function load(){
     state.today = daySlots(tm, state.todayStart);
     state.slots = daySlots(vmS, state.view);
     state.hasNext = daySlots(ndm, nd).length > 0;
+    const tm2 = await getMonth(monKey(nextDay(state.todayStart)));
+    state.tomorrow = daySlots(tm2, nextDay(state.todayStart)).length > 0;
     $('prod').textContent = DEMO ? 'DEMO' : state.tariff.product;
   }catch(e){
     console.error(e); $('err').textContent = 'Could not load prices: ' + e.message; $('err').style.display='block';
   }
   render();
+  loadOverlay();
 }
 function refresh(){ // drop current & future months so new prices are picked up
   const ck = monKey(new Date());
@@ -326,7 +334,8 @@ function drawChart(){
   svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
   if(!S.length){ svg.innerHTML=`<text x="${W/2}" y="${H/2}" text-anchor="middle" style="font-size:14px">No prices published for this day</text>`; svg._geom=null; return; }
   const m = {l:30,r:6,t:30,b:24}, iw = W-m.l-m.r, ih = H-m.t-m.b;
-  const ps = S.map(s=>s.p), lo = Math.min(0,...ps), hi = Math.max(...ps)*1.06||1;
+  const ov = state.overlay && state.overlay.rates.length===S.length ? state.overlay : null;
+  const ps = S.map(s=>s.p).concat(ov ? ov.rates.filter(v=>v!==null) : []), lo = Math.min(0,...ps), hi = Math.max(...ps)*1.06||1;
   const y = v => m.t + ih*(1-(v-lo)/(hi-lo));
   const t0 = S[0].from.getTime(), t1 = S[S.length-1].to.getTime();
   const x = t => m.l + iw*(t-t0)/(t1-t0);
@@ -357,12 +366,20 @@ function drawChart(){
       <rect x="${px-pw/2}" y="2" width="${pw}" height="22" rx="11" fill="var(--accent)"/>
       <text x="${px}" y="17" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:12px">${lab}</text>`;
   }
-  svg.innerHTML = g + bars + nowLine;
+  let line='';
+  if (ov){
+    let d='', prev=null;
+    S.forEach((s,i)=>{ const v=ov.rates[i]; if(v===null){prev=null;return;}
+      const xa=x(s.from.getTime()), xb=x(s.to.getTime());
+      d += prev===null ? `M${xa},${y(v)}` : `L${xa},${y(v)}`; d += `L${xb},${y(v)}`; prev=v; });
+    line=`<path d="${d}" fill="none" stroke="var(--card)" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/><path d="${d}" fill="none" stroke="var(--text)" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  }
+  svg.innerHTML = g + bars + line + nowLine;
   svg._geom = {m,iw,t0,t1,W,H,x};
 }
 
 // ---- month view
-function last30(){ const out=[]; let d=state.todayStart; for(let i=0;i<30;i++){ out.unshift(d); d=prevDay(d); } return out; }
+function last30(){ const out=[]; let d=state.tomorrow ? nextDay(state.todayStart) : state.todayStart; for(let i=0;i<30;i++){ out.unshift(d); d=prevDay(d); } return out; }
 function monthDays(){
   return last30().map(s=>{
     const d=daySlots(state.data.get(monKey(s))||[],s), ps=d.map(x=>x.p);
@@ -389,8 +406,9 @@ function drawMonth(){
       out+=`<rect x="${bx}" y="${top}" width="${w}" height="${h}" rx="${r}" fill="${colour(d.avg)}" opacity="${isSel?1:.7}"/>`;
       if(isSel) out+=`<rect x="${bx-1.5}" y="${top-1.5}" width="${w+3}" height="${h+3}" rx="${r+1}" fill="none" stroke="var(--text)" stroke-width="1.5"/>`;
     } else out+=`<rect x="${bx}" y="${m.t+ih-3}" width="${w}" height="3" rx="1.5" fill="var(--line)"/>`;
-    const last=i===n-1;
-    if(i===0||i%7===0&&i<n-4||last) out+=`<text x="${last?bx+w:(i===0?bx:bx+w/2)}" y="${H-4}" text-anchor="${last?'end':(i===0?'start':'middle')}" style="${last?'fill:var(--accent);font-weight:700':''}">${last?'Today':fmtDM.format(d.start)}</text>`;
+    const ti = days.findIndex(x=>dayKey(x.start)===dayKey(state.todayStart));
+    if(dayKey(d.start)===dayKey(state.todayStart)) out+=`<text x="${bx+w}" y="${H-4}" text-anchor="end" style="fill:var(--accent);font-weight:700">Today</text>`;
+    else if(i===0 || (i%7===0 && Math.abs(i-ti)>4)) out+=`<text x="${i===0?bx:bx+w/2}" y="${H-4}" text-anchor="${i===0?'start':'middle'}">${fmtDM.format(d.start)}</text>`;
   });
   svg.innerHTML = out; svg._g={m,iw,n,days};
   const sel=days.find(d=>dayKey(d.start)===dayKey(state.view));
@@ -402,6 +420,58 @@ function monthPick(e){ const svg=$('month'), g=svg._g; if(!g) return null;
 $('month').addEventListener('click', e => { const d=monthPick(e); if(d && d.n){ state.view=d.start; load(); } });
 $('month').addEventListener('pointermove', e => { const d=monthPick(e); if(d) $('mread').innerHTML=daySummary(d); });
 $('month').addEventListener('pointerleave', () => drawMonth());
+
+
+// ---- tariff overlay (other Octopus tariffs, unit rate inc. VAT, direct debit)
+const TARIFFS = ['Flexible Octopus','Octopus Tracker','Octopus Go','Intelligent Octopus Go','Cosy Octopus'];
+let cmpName = store.get('cmp'); if (cmpName !== 'none' && !TARIFFS.includes(cmpName)) cmpName = TARIFFS[0];
+for (const n of TARIFFS) $('cmpsel').add(new Option(n, n)); $('cmpsel').add(new Option('None', 'none')); $('cmpsel').value = cmpName;
+$('cmpsel').onchange = e => { cmpName = e.target.value; store.set('cmp', cmpName); loadOverlay(); };
+const ovCache = new Map(), prodCache = new Map();
+const toWin = r => ({from:new Date(r.valid_from), to:r.valid_to?new Date(r.valid_to):null, p:r.value_inc_vat});
+const dd = r => r.payment_method === 'DIRECT_DEBIT' || !r.payment_method;
+const rateAt = (w,t) => { let best=null; for(const x of w) if(x.from.getTime()<=t && (!x.to || t<x.to.getTime()) && (!best || x.from>best.from)) best=x; return best; };
+async function productsAt(dayStart){
+  const k = dayKey(dayStart); if(!prodCache.has(k)) prodCache.set(k, getAll(`${BASE}/products/?brand=OCTOPUS_ENERGY&available_at=${new Date(dayStart.getTime()+12*3600e3).toISOString()}&page_size=100`));
+  return prodCache.get(k);
+}
+async function tariffRates(name, dayStart, slots){
+  const key = `${name}|${state.region}|${dayKey(dayStart)}`;
+  if (ovCache.has(key)) return ovCache.get(key);
+  const prom = (async () => {
+    const want = name.toLowerCase();
+    const cands = (await productsAt(dayStart)).filter(p => (p.display_name||'').toLowerCase()===want && !p.is_business && !p.is_prepay);
+    const end = nextDay(dayStart);
+    for (const p of cands){
+      const det = await getJSON(`${BASE}/products/${p.code}/`);
+      const rt = (det.single_register_electricity_tariffs||{})['_'+state.region];
+      const t = rt && (rt.direct_debit_monthly || Object.values(rt)[0]); if(!t) continue;
+      const q = `period_from=${dayStart.toISOString()}&period_to=${end.toISOString()}&page_size=1500`;
+      const base = `${BASE}/products/${p.code}/electricity-tariffs/${t.code}`;
+      const day = (await getAll(`${base}/standard-unit-rates/?${q}`).catch(()=>[])).filter(dd).map(toWin);
+      if(!day.length) continue;
+      const night = (await getAll(`${base}/night-unit-rates/?${q}`).catch(()=>[])).filter(dd).map(toWin);
+      const out = slots.map(s => { const t0=s.from.getTime(), n=rateAt(night,t0), d=rateAt(day,t0); const r=n||d; return r?r.p:null; });
+      if (out.some(v=>v!==null)) return out;
+    }
+    return null;
+  })();
+  ovCache.set(key, prom); prom.catch(()=>ovCache.delete(key));
+  return prom;
+}
+async function loadOverlay(){
+  const note=$('cmpnote'); note.textContent='';
+  if (cmpName==='none' || !state.slots.length){ state.overlay=null; drawChart(); return; }
+  const tok = state.ovTok = {}, name=cmpName, view=state.view, slots=state.slots;
+  state.overlay=null; drawChart();
+  try{
+    const rates = await tariffRates(name, view, slots);
+    if (state.ovTok!==tok) return;
+    if (!rates){ note.textContent = `No ${name} rates for this day`; state.overlay=null; }
+    else state.overlay = {name, rates};
+  }catch(e){ if(state.ovTok!==tok) return; console.warn(e); note.textContent = `Couldn't load ${name} rates`; state.overlay=null; }
+  drawChart();
+}
 
 // ---- navigation
 function go(view){ state.view=view; state.hover=null; $('tip').style.display='none'; load(); }
@@ -419,7 +489,7 @@ function pointer(e){
   const i=state.slots.findIndex(s=>s.from.getTime()<=t && t<s.to.getTime());
   if(i<0){ leave(); return; }
   state.hover=i; const s=state.slots[i], tip=$('tip');
-  tip.innerHTML=`<b>${pr(s.p).replace('p','')} p/kWh</b>${fmtTime.format(s.from)}–${fmtTime.format(s.to)} · ${band(s.p)[2].split(' ')[0]}`;
+  tip.innerHTML=`<b>${pr(s.p).replace('p','')} p/kWh</b>${fmtTime.format(s.from)}–${fmtTime.format(s.to)} · ${band(s.p)[2].split(' ')[0]}${(state.overlay&&state.overlay.rates[i]!=null)?`<br>${state.overlay.name.replace(' Octopus','').replace('Octopus ','')}: ${pr(state.overlay.rates[i])}`:''}`;
   tip.style.display='block';
   const wr=svg.parentElement.getBoundingClientRect();
   const cx=(g.x(s.from.getTime())+g.x(s.to.getTime()))/2*(r.width/g.W)+(r.left-wr.left);
