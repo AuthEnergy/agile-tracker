@@ -132,7 +132,7 @@ button.pill.sm.txt{width:auto;padding:0 12px;font-size:.82rem;font-weight:600}
 .pill:disabled{opacity:.35;cursor:default}
 .charthead span.sm{font-weight:500}
 .monthcard{padding:16px 14px 14px}
-#month{display:block;width:100%;height:110px;cursor:pointer}
+#month{display:block;width:100%;height:110px;cursor:pointer;touch-action:pan-y;user-select:none;-webkit-user-select:none}
 .mread{padding:8px 6px 0;color:var(--muted);font-size:.8rem;min-height:1.9em}
 .mread b{color:var(--text);font-weight:650}
 .cmp{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 6px 0;font-size:.8rem;color:var(--muted)}
@@ -482,26 +482,29 @@ function drawMonth(){
   let out='';
   days.forEach((d,i)=>{
     const gp=Math.max(2,bw*0.22), bx=m.l+i*bw+gp/2, w=Math.max(2,bw-gp), r=Math.min(w/2,4);
-    const isSel=dayKey(d.start)===dayKey(state.view), isToday=dayKey(d.start)===dayKey(state.todayStart);
+    const isHov=state.mhover===i, isSel=dayKey(d.start)===dayKey(state.view), isToday=dayKey(d.start)===dayKey(state.todayStart);
     if(d.n){
       const top=Math.min(y(0),y(d.avg)), h=Math.max(3,Math.abs(y(0)-y(d.avg)));
-      out+=`<rect x="${bx}" y="${top}" width="${w}" height="${h}" rx="${r}" fill="${colour(d.avg)}" opacity="${isSel?1:(eff()==='dark'?.7:.88)}"/>`;
-      if(isSel) out+=`<rect x="${bx-1.5}" y="${top-1.5}" width="${w+3}" height="${h+3}" rx="${r+1}" fill="none" stroke="var(--text)" stroke-width="1.5"/>`;
+      out+=`<rect x="${bx}" y="${top}" width="${w}" height="${h}" rx="${r}" fill="${colour(d.avg)}" opacity="${(isSel||isHov)?1:(eff()==='dark'?.7:.88)}"/>`;
+      if(isSel||isHov) out+=`<rect x="${bx-1.5}" y="${top-1.5}" width="${w+3}" height="${h+3}" rx="${r+1}" fill="none" stroke="var(--text)" stroke-width="${isHov?2:1.5}" ${isHov&&!isSel?'stroke-dasharray="0" opacity=".75"':''}/>`;
     } else out+=`<rect x="${bx}" y="${m.t+ih-3}" width="${w}" height="3" rx="1.5" fill="var(--line)"/>`;
     const ti = days.findIndex(x=>dayKey(x.start)===dayKey(state.todayStart));
     if(dayKey(d.start)===dayKey(state.todayStart)) out+=`<text x="${bx+w}" y="${H-4}" text-anchor="end" style="fill:var(--accent);font-weight:700">Today</text>`;
     else if(i===0 || (i%7===0 && Math.abs(i-ti)>4)) out+=`<text x="${i===0?bx:bx+w/2}" y="${H-4}" text-anchor="${i===0?'start':'middle'}">${fmtDM.format(d.start)}</text>`;
   });
   svg.innerHTML = out; svg._g={m,iw,n,days};
-  const sel=days.find(d=>dayKey(d.start)===dayKey(state.view));
+  const sel=days[state.mhover]||days.find(d=>dayKey(d.start)===dayKey(state.view));
   $('mread').innerHTML = sel ? daySummary(sel) : 'Tap a day to view it';
 }
-function monthPick(e){ const svg=$('month'), g=svg._g; if(!g) return null;
+function monthPick(e){ const svg=$('month'), g=svg._g; if(!g) return -1;
   const r=svg.getBoundingClientRect(), px=(e.clientX-r.left)*(svg.viewBox.baseVal.width/r.width);
-  const i=Math.floor((px-g.m.l)/(g.iw/g.n)); return g.days[i]||null; }
-$('month').addEventListener('click', e => { const d=monthPick(e); if(d && d.n){ state.view=d.start; load(); } });
-$('month').addEventListener('pointermove', e => { const d=monthPick(e); if(d) $('mread').innerHTML=daySummary(d); });
-$('month').addEventListener('pointerleave', () => drawMonth());
+  const i=Math.floor((px-g.m.l)/(g.iw/g.n)); return g.days[i]?i:-1; }
+const mon=$('month'), mhover = e => { const i=monthPick(e); if(i<0||i===state.mhover) return; state.mhover=i; drawMonth(); };
+const mleave = () => { if(state.mhover==null) return; state.mhover=null; drawMonth(); };
+mon.addEventListener('click', e => { const i=monthPick(e), d=i>=0&&svgDays()[i]; mleave(); if(d && d.n){ state.view=d.start; load(); } });
+mon.addEventListener('pointermove', mhover); mon.addEventListener('pointerdown', mhover);
+mon.addEventListener('pointerleave', mleave); mon.addEventListener('pointercancel', mleave);
+function svgDays(){ return mon._g ? mon._g.days : []; }
 
 
 // ---- tariff overlay (other Octopus tariffs, unit rate inc. VAT, direct debit)

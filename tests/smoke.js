@@ -66,6 +66,11 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
     await page.waitForFunction(n => document.querySelectorAll('#chart path').length > n, p0, { timeout: 5000 }).catch(() => {});
     await page.waitForLoadState('networkidle').catch(() => {});
     check(await page.locator('#chart path').count() > p0, `${sc.name}: tariff overlay line missing after selecting a tariff`);
+    { await page.locator('#month').scrollIntoViewIfNeeded(); const b = await page.locator('#month').boundingBox();
+      await page.mouse.move(b.x + b.width * 0.3, b.y + b.height / 2); await page.mouse.move(b.x + b.width * 0.31, b.y + b.height / 2);
+      const hov = await page.locator('#month rect[fill="none"]').count();
+      check(hov >= 2, `${sc.name}: 30-day view should outline hovered day plus selected day (got ${hov})`);
+      await page.mouse.move(b.x + b.width / 2, b.y - 40); }
     check(!(await page.locator('#why').isHidden()) && (await t('#whyh')).startsWith('Why today'), `${sc.name}: explanation missing`);
     check(await page.locator('#whymix .mixbar i').count() >= 3, `${sc.name}: generation mix bar missing`);
     check(await page.isEnabled('#nextd'), `${sc.name}: next-day should be enabled when tomorrow is published`);
