@@ -61,6 +61,15 @@ button.pill svg{width:18px;height:18px}
 .chip i{width:8px;height:8px;border-radius:50%;background:var(--band,var(--accent))}
 .clock{font-size:.9rem;color:var(--muted);text-align:right}
 .clock b{color:var(--text);font-weight:650}
+.hero-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,350px);gap:16px 28px;align-items:end}
+@media (max-width:700px){.hero-body{grid-template-columns:minmax(0,1fr)}}
+.why{background:color-mix(in srgb,var(--card) 62%,transparent);border:1px solid color-mix(in srgb,var(--band,var(--accent)) 28%,var(--line));border-radius:20px;padding:13px 16px;font-size:.88rem;line-height:1.4}
+.why[hidden]{display:none}
+.why-h{font-weight:700;margin-bottom:6px}
+.why ul{list-style:none;margin:0;padding:0;display:grid;gap:5px}
+.why li{display:flex;gap:8px}
+.why li span:first-child{flex:none}
+.why-d{margin-top:9px;color:var(--muted);font-size:.74rem;line-height:1.35}
 .price{margin:14px 0 2px;font-size:clamp(3.4rem,15vw,5.5rem);font-weight:750;line-height:.95;letter-spacing:-.04em}
 .price small{font-size:.26em;font-weight:600;letter-spacing:0;color:var(--muted);margin-left:8px}
 .sub{color:var(--muted);font-size:.92rem}
@@ -122,8 +131,17 @@ svg text{fill:var(--muted);font-size:11px;font-family:inherit}
       <span class="chip"><i></i><span id="status">Loading…</span></span>
       <div class="clock num"><b id="clock">--:--</b> UK<br><span id="date"></span></div>
     </div>
-    <div class="price num"><span id="now">–</span><small>p/kWh</small></div>
-    <div class="sub num" id="nowslot">inc. VAT</div>
+    <div class="hero-body">
+      <div>
+        <div class="price num"><span id="now">–</span><small>p/kWh</small></div>
+        <div class="sub num" id="nowslot">inc. VAT</div>
+      </div>
+      <div class="why" id="why" hidden>
+        <div class="why-h" id="whyh"></div>
+        <ul id="whyl"></ul>
+        <div class="why-d" id="whyd"></div>
+      </div>
+    </div>
   </section>
 
   <section class="tiles">
@@ -166,7 +184,7 @@ const store = {get(k){try{return localStorage.getItem(k)}catch{return null}},set
 const params = new URLSearchParams(location.search);
 const DEMO = params.has('demo');
 let state = {region: store.get('region') || store.get('regionAuto') || 'C', tariff:null, tariffRegion:null,
-  days:new Map(), view:null, todayStart:null, slots:[], today:[], hasNext:false, tomorrow:false, overlay:null, hover:null};
+  days:new Map(), view:null, todayStart:null, slots:[], today:[], hasNext:false, tomorrow:false, overlay:null, ctx:null, hover:null};
 
 // ---- theme
 const eff = () => document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
@@ -179,7 +197,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => ap
 for (const [k,v] of Object.entries(REGIONS)) $('region').add(new Option(`${k} – ${v}`, k));
 $('region').value = state.region;
 $('region').onchange = e => { $('auto').textContent=''; $('region').title=''; state.region = e.target.value; store.set('region', state.region);
-  state.tariff=null; state.days.clear(); state.view=state.todayStart; load(); };
+  state.tariff=null; state.days.clear(); state.ctx=null; state.view=state.todayStart; load(); };
 
 // ---- UK time helpers
 const fmtTime = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'2-digit',minute:'2-digit',hour12:false});
@@ -299,7 +317,7 @@ async function load(){
   try{
     await ensureDays([ts, tom, state.view, vn]);          // phase 1: just what the first paint needs
     if (state.loadTok!==tok) return;
-    apply(); $('prod').textContent = prodName(); render(); loadOverlay();
+    apply(); $('prod').textContent = prodName(); render(); loadOverlay(); loadContext();
     await ensureDays(last30());                           // phase 2: the 30-day strip
     if (state.loadTok!==tok) return;
     apply(); drawMonth();
@@ -351,7 +369,7 @@ function render(){
   const isToday = dayKey(state.view)===dayKey(state.todayStart);
   $('todaybtn').disabled = isToday; $('nextd').disabled = !state.hasNext;
   $('nextd').title = state.hasNext ? 'Next day (→)' : 'Tomorrow\'s prices aren\'t published yet (usually ~4pm)';
-  drawAll();
+  drawAll(); renderWhy();
 }
 function drawAll(){ drawChart(); drawMonth(); }
 
@@ -513,6 +531,80 @@ async function loadOverlay(){
     else state.overlay = {name, rates};
   }catch(e){ if(state.ovTok!==tok) return; console.warn(e); note.textContent = `Couldn't load ${name} rates`; state.overlay=null; }
   drawChart();
+}
+
+
+// ---- "why is the price like this?" — national grid mix + carbon intensity (NESO Carbon Intensity API) and regional weather (Open-Meteo)
+const REGION_XY = {A:[52.2,0.1],B:[52.9,-1.2],C:[51.5,-0.1],D:[53.4,-3.0],E:[52.5,-2.0],F:[54.9,-1.6],G:[53.8,-2.6],H:[51.0,-1.3],J:[51.3,0.5],K:[51.6,-3.4],L:[50.8,-3.5],M:[53.9,-1.4],N:[55.9,-3.8],P:[57.4,-4.3]};
+const iso16 = d => d.toISOString().slice(0,16)+'Z';
+async function jfetch(u, ms=5000){ const c=new AbortController(), id=setTimeout(()=>c.abort(),ms);
+  try{ const r=await fetch(u,{signal:c.signal}); if(!r.ok) throw new Error(r.status); return await r.json(); } finally{ clearTimeout(id); } }
+async function loadContext(){
+  const day=state.todayStart, region=state.region, k=`x:${region}:${dayKey(day)}`;
+  if (DEMO){ state.ctx={mix:[{f:Date.now()-900e3,wind:34,solar:2,gas:27,nuclear:13,imp:9}], ci:[{f:Date.now()-900e3,v:118,idx:'moderate'}], wx:{temp:7.2,wind:9.8,cloud:55,sun:40,f:Date.now()}}; return renderWhy(); }
+  const c = LS.get(k); if (c && Date.now()-c.t < 15*60e3){ state.ctx=c; return renderWhy(); }
+  const from=iso16(day), to=iso16(nextDay(day)), [lat,lon]=REGION_XY[region]||REGION_XY.C;
+  const d0=day.toISOString().slice(0,10), d1=new Date(day.getTime()+36*3600e3).toISOString().slice(0,10);
+  const [g,ci,wx] = await Promise.allSettled([
+    jfetch(`https://api.carbonintensity.org.uk/generation/${from}/${to}`),
+    jfetch(`https://api.carbonintensity.org.uk/intensity/${from}/${to}`),
+    jfetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,wind_speed_100m,cloud_cover,shortwave_radiation&wind_speed_unit=ms&timezone=UTC&start_date=${d0}&end_date=${d1}`)]);
+  const ctx = {t:Date.now(), mix:[], ci:[], wx:null};
+  if (g.status==='fulfilled') ctx.mix = (g.value.data||[]).map(x=>{ const m={}; (x.generationmix||[]).forEach(f=>m[f.fuel]=f.perc);
+    return {f:Date.parse(x.from), wind:m.wind||0, solar:m.solar||0, gas:m.gas||0, nuclear:m.nuclear||0, imp:m.imports||0}; });
+  if (ci.status==='fulfilled') ctx.ci = (ci.value.data||[]).map(x=>({f:Date.parse(x.from), v:x.intensity.actual ?? x.intensity.forecast, idx:x.intensity.index}));
+  if (wx.status==='fulfilled' && wx.value.hourly){ const h=wx.value.hourly; ctx.wx={times:h.time, temp:h.temperature_2m, wind:h.wind_speed_100m, cloud:h.cloud_cover, sun:h.shortwave_radiation}; }
+  if (ctx.mix.length||ctx.ci.length||ctx.wx){ LS.set(k, ctx); state.ctx=ctx; } else if (!state.ctx) state.ctx=null;
+  renderWhy();
+}
+const lastAtOrBefore = (arr, ms, maxAge=2*3600e3) => { let b=null; for(const x of arr) if(x.f<=ms) b=x; else break; return b && ms-b.f<=maxAge ? b : null; };
+function explain(){
+  const S=state.today, i=curIdx(S); if(i<0) return null;
+  const cur=S[i], ms=cur.from.getTime(), p=parts(cur.from), h=(+p.hour%24)+(+p.minute)/60, ps=S.map(s=>s.p);
+  const avg=ps.reduce((a,b)=>a+b,0)/ps.length, diff=cur.p-avg, dir = cur.p<15 ? -1 : cur.p<25 ? 0 : 1;
+  const F=[], r=Math.round, ctx=state.ctx||{};
+  if (h>=16 && h<19) F.push({d:1,w:90,t:'🕓',x:'Evening peak: Agile adds a ~12p premium from 16:00 to 19:00'});
+  else if (h<6) F.push({d:-1,w:45,t:'🌙',x:'Overnight: national demand is at its lowest'});
+  else if (h>=7 && h<9.5) F.push({d:1,w:35,t:'⏰',x:'Morning demand ramp-up'});
+  else if (h>=19 && h<21.5) F.push({d:1,w:25,t:'🏠',x:'Evening demand is still elevated'});
+  const m = ctx.mix && lastAtOrBefore(ctx.mix, ms);
+  if (m){
+    if (m.wind>=30) F.push({d:-1,w:60+m.wind/2,t:'💨',x:`Wind is generating ${r(m.wind)}% of Britain's electricity`});
+    else if (m.wind<=8) F.push({d:1,w:58,t:'💨',x:`Wind output is very low (${r(m.wind)}%)`});
+    if (m.solar>=8) F.push({d:-1,w:50+m.solar,t:'☀️',x:`Solar is supplying ${r(m.solar)}% of the grid`});
+    if (m.gas>=45) F.push({d:1,w:70,t:'🔥',x:`Gas is supplying ${r(m.gas)}% and tends to set the marginal price`});
+    else if (m.gas<=15) F.push({d:-1,w:40,t:'🔥',x:`Gas is only ${r(m.gas)}% of generation`});
+  }
+  const c = ctx.ci && lastAtOrBefore(ctx.ci, ms);
+  if (c && c.v!=null){
+    if (c.idx==='very high'||c.idx==='high') F.push({d:1,w:30,t:'🌍',x:`Grid carbon intensity is ${c.idx} (${c.v} g/kWh) – more fossil generation`});
+    else if (c.idx==='very low'||c.idx==='low') F.push({d:-1,w:30,t:'🌍',x:`Grid carbon intensity is ${c.idx} (${c.v} g/kWh) – plenty of clean supply`});
+  }
+  const w = ctx.wx; let wi=-1, wv=null;
+  if (w){ wi=w.times.indexOf(new Date(Math.floor(ms/3600e3)*3600e3).toISOString().slice(0,13)+':00'); if(wi>=0) wv={temp:w.temp[wi],wind:w.wind[wi],cloud:w.cloud[wi],sun:w.sun[wi]}; }
+  if (wv){
+    if (wv.temp!=null && wv.temp<=3) F.push({d:1,w:42,t:'🌡️',x:`Cold weather (${r(wv.temp)}°C) lifts heating demand`});
+    if (!m && wv.wind!=null){ if(wv.wind>=9) F.push({d:-1,w:45,t:'💨',x:`Strong winds in your region (${wv.wind.toFixed(1)} m/s at turbine height)`}); else if(wv.wind<=3) F.push({d:1,w:30,t:'💨',x:`Calm winds in your region (${wv.wind.toFixed(1)} m/s)`}); }
+    if (!m && wv.sun>=250 && wv.cloud<40) F.push({d:-1,w:35,t:'☀️',x:'Clear, sunny skies boost solar output'});
+  }
+  const top = (d,n) => F.filter(f=>f.d===d).sort((a,b)=>b.w-a.w).slice(0,n);
+  let head, items;
+  if (cur.p<0){ head='Why you\'re being paid to use power'; items=top(-1,2); if(!items.length) items=[{t:'⚡',x:'Supply is far ahead of demand, so wholesale prices have gone negative'}]; }
+  else if (dir<0){ head='Why it\'s cheap'; items=top(-1,2); if(!items.length) items=[{t:'⚡',x:'Supply is comfortably ahead of demand'}]; }
+  else if (dir>0){ head=cur.p>=35?'Why it\'s a peak price':'Why it\'s pricey'; items=top(1,2); if(!items.length) items=[{t:'⚡',x:'Demand is tight relative to available supply'}]; }
+  else { head='Why it\'s about average'; items=[...top(-1,1),...top(1,1)]; if(!items.length) items=[{t:'⚖️',x:'Supply and demand are roughly in balance'}]; }
+  const bits=[]; if(m) bits.push(`Wind ${r(m.wind)}% · Gas ${r(m.gas)}% · Solar ${r(m.solar)}% · Nuclear ${r(m.nuclear)}%`);
+  if (wv && wv.temp!=null) bits.push(`${r(wv.temp)}°C`);
+  const vs = Math.abs(diff)<0.5 ? "in line with today's average" : `${Math.abs(diff).toFixed(1)}p ${diff<0?'below':'above'} today's average`;
+  return {head, items, foot: vs + (bits.length? ' · '+bits.join(' · '):'')};
+}
+function renderWhy(){
+  const e = explain(), box=$('why');
+  if(!e){ box.hidden=true; return; }
+  box.hidden=false; $('whyh').textContent=e.head;
+  $('whyl').innerHTML = e.items.map(i=>`<li><span>${i.t}</span><span>${i.x}</span></li>`).join('');
+  $('whyd').textContent=e.foot;
+  $('whyd').title='Agile price ≈ wholesale × ~2.2, plus ~12p between 16:00 and 19:00 (capped at 100p). Generation mix & carbon intensity: NESO Carbon Intensity API (national). Weather: Open-Meteo (your region). Demand is estimated from time of day.';
 }
 
 // ---- navigation
