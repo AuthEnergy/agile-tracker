@@ -13,17 +13,18 @@
   --bg:#e6e9f2; --bg2:#f0f2f8; --card:#ffffff; --tile:#f4f5fa; --text:#0e1322; --muted:#4d566b; --line:#d0d6e4; --accent:#5b34f0;
   --neg:#059669; --cheap:#16a34a; --mid:#f59e0b; --high:#ea580c; --peak:#e11d48;
   --shadow:0 1px 2px rgba(14,19,34,.08),0 8px 24px rgba(14,19,34,.09);
+  --f-wind:#0d9488; --f-solar:#f59e0b; --f-nuclear:#7c3aed; --f-imp:#2563eb; --f-gas:#6b7280; --f-other:#bcc3d1;
 }
 :root[data-theme="dark"]{
   --bg:#080b12; --bg2:#0d111b; --card:#121724; --tile:#1a2030; --text:#f1f3f9; --muted:#8c95aa; --line:#222a3b; --accent:#a58bff;
   --neg:#34d399; --cheap:#4ade80; --mid:#fcd34d; --high:#fb923c; --peak:#fb7185;
-  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35); --f-wind:#2dd4bf; --f-solar:#fbbf24; --f-nuclear:#a78bfa; --f-imp:#60a5fa; --f-gas:#94a3b8; --f-other:#475569;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --bg:#080b12; --bg2:#0d111b; --card:#121724; --tile:#1a2030; --text:#f1f3f9; --muted:#8c95aa; --line:#222a3b; --accent:#a58bff;
     --neg:#34d399; --cheap:#4ade80; --mid:#fcd34d; --high:#fb923c; --peak:#fb7185;
-    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35); --f-wind:#2dd4bf; --f-solar:#fbbf24; --f-nuclear:#a78bfa; --f-imp:#60a5fa; --f-gas:#94a3b8; --f-other:#475569;
   }
 }
 *{box-sizing:border-box}
@@ -72,6 +73,14 @@ button.pill svg{width:18px;height:18px}
 .why ul{list-style:none;margin:0;padding:0;display:grid;gap:5px}
 .why li{display:flex;gap:8px}
 .why li span:first-child{flex:none}
+.mix{margin-top:12px}
+.mix-c{font-size:.72rem;color:var(--muted);margin-bottom:6px}
+.mixbar{display:flex;gap:2px;height:10px;border-radius:999px;overflow:hidden}
+.mixbar i{display:block;min-width:2px}
+.mixleg{display:flex;flex-wrap:wrap;gap:3px 12px;margin-top:7px;font-size:.72rem;color:var(--muted)}
+.mixleg span{display:inline-flex;align-items:center;gap:5px}
+.mixleg i{width:8px;height:8px;border-radius:50%;display:inline-block}
+.mixleg b{color:var(--text);font-weight:600}
 .why-d{margin-top:9px;color:var(--muted);font-size:.74rem;line-height:1.35}
 .price{margin:0 0 6px;font-size:clamp(3.4rem,13vw,5.2rem);font-weight:750;line-height:.95;letter-spacing:-.04em}
 .price small{font-size:.26em;font-weight:600;letter-spacing:0;color:var(--muted);margin-left:8px}
@@ -146,6 +155,7 @@ svg text{fill:var(--muted);font-size:11px;font-family:inherit}
         <div class="why-h" id="whyh"></div>
         <ul id="whyl"></ul>
         <div class="why-d" id="whyd"></div>
+        <div class="mix" id="whymix" hidden></div>
       </div>
     </div>
   </section>
@@ -582,8 +592,10 @@ function explain(){ // day-level: why is *today* cheap / pricey / average?
   const F=[];
   // generation mix so far today (national)
   const mix=(ctx.mix||[]).filter(x=>x.f>=t0 && x.f<t1);
-  let mw=null, mg=null, ms=null, mn=null;
+  let mw=null, mg=null, ms=null, mn=null, mixseg=null;
   if (mix.length>=4){ mw=mean(mix.map(x=>x.wind)); mg=mean(mix.map(x=>x.gas)); ms=Math.max(...mix.map(x=>x.solar)); mn=mean(mix.map(x=>x.nuclear));
+    const sol=mean(mix.map(x=>x.solar)), imp=mean(mix.map(x=>x.imp));
+    mixseg=[['wind','Wind',mw],['solar','Solar',sol],['nuclear','Nuclear',mn],['imp','Imports',imp],['gas','Gas',mg],['other','Other',Math.max(0,100-mw-sol-mn-imp-mg)]];
     if (mw>=28) F.push({d:-1,w:60+mw/2,t:'💨',x:`Windy: wind has averaged ${r(mw)}% of Britain's electricity so far today`});
     else if (mw<=10) F.push({d:1,w:60,t:'💨',x:`Light wind: only ${r(mw)}% of electricity so far today`});
     if (mg>=45) F.push({d:1,w:70,t:'🔥',x:`Gas is doing the heavy lifting (${r(mg)}% of generation), which tends to set the price`});
@@ -612,9 +624,8 @@ function explain(){ // day-level: why is *today* cheap / pricey / average?
     const pk=S[ps.indexOf(Math.max(...ps))], negN=ps.filter(v=>v<0).length;
     items.push({t:'📈',x:`Cheapest 2 hours: ${hh(S[b].from)}–${hh(S[b+W-1].to)} (avg ${pr(ba)}). Dearest: ${hh(pk.from)} at ${pr(pk.p)}${negN?`. Negative for ${negN/2}h`:''}`}); }
   const bits=[`Avg ${pr(avg)}`+(avg30!==null?` vs ${pr(avg30)} 30-day avg`:'')];
-  if (mw!==null) bits.push(`Wind ${r(mw)}% · Gas ${r(mg)}% · Nuclear ${r(mn)}%`);
   if (tmin!==null) bits.push(trange(tmin,tmax));
-  return {head:`Why today is ${rel}`, items, foot:bits.join(' · ')};
+  return {head:`Why today is ${rel}`, items, foot:bits.join(' · '), mix:mixseg};
 }
 function renderWhy(){
   const e = explain(), box=$('why');
@@ -622,6 +633,11 @@ function renderWhy(){
   box.hidden=false; $('whyh').textContent=e.head;
   $('whyl').innerHTML = e.items.map(i=>`<li><span>${i.t}</span><span>${i.x}</span></li>`).join('');
   $('whyd').textContent=e.foot;
+  const mx=$('whymix');
+  if (e.mix){ const segs=e.mix.filter(m=>m[2]>=0.5);
+    mx.innerHTML = `<div class="mix-c">Generation mix so far today</div><div class="mixbar" role="img" aria-label="Generation mix">${segs.map(m=>`<i style="width:${m[2]}%;background:var(--f-${m[0]})" title="${m[1]} ${Math.round(m[2])}%"></i>`).join('')}</div>`+
+      `<div class="mixleg">${segs.filter(m=>m[2]>=3).map(m=>`<span><i style="background:var(--f-${m[0]})"></i>${m[1]} <b>${Math.round(m[2])}%</b></span>`).join('')}</div>`; mx.hidden=false; }
+  else { mx.hidden=true; mx.innerHTML=''; }
   $('whyd').title='Agile price ≈ wholesale × ~2.2, plus ~12p between 16:00 and 19:00 (capped at 100p). Generation mix & carbon intensity: NESO Carbon Intensity API (national). Weather: Open-Meteo (your region). Demand is not measured directly; weekday/weather are used as proxies.';
 }
 
