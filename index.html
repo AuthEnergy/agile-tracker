@@ -137,9 +137,9 @@ svg text{fill:var(--muted);font-size:11px;font-family:inherit}
     </div>
   </section>
   <section class="card monthcard">
-    <div class="charthead"><div><h2 id="monthtitle">Month</h2><span class="sm" id="monthsub">Daily average, p/kWh</span></div>
-      <div class="daynav"><button id="mprev" class="pill sm" aria-label="Previous month">‹</button><button id="mnext" class="pill sm" aria-label="Next month">›</button></div></div>
-    <svg id="month" role="img" aria-label="Daily average prices this month"></svg>
+    <div class="charthead"><div><h2 id="monthtitle">Last 30 days</h2><span class="sm" id="monthsub">Daily average, p/kWh</span></div>
+      </div>
+    <svg id="month" role="img" aria-label="Daily average prices, last 30 days"></svg>
     <div class="mread" id="mread"></div>
   </section>
   <div class="err" id="err" role="alert"></div>
@@ -158,7 +158,7 @@ const store = {get(k){try{return localStorage.getItem(k)}catch{return null}},set
 const params = new URLSearchParams(location.search);
 const DEMO = params.has('demo');
 let state = {region: store.get('region') || store.get('regionAuto') || 'C', tariff:null, tariffRegion:null,
-  pc:new Map(), data:new Map(), view:null, vm:null, todayStart:null, slots:[], today:[], hasNext:false, hover:null};
+  pc:new Map(), data:new Map(), view:null, todayStart:null, slots:[], today:[], hasNext:false, hover:null};
 
 // ---- theme
 const eff = () => document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
@@ -179,6 +179,7 @@ const fmtClock = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'2-digit',min
 const fmtDate = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,weekday:'long',day:'numeric',month:'long'});
 const fmtDay = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,weekday:'short',day:'numeric',month:'short'});
 const fmtLong = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,weekday:'long',day:'numeric',month:'long'});
+const fmtDM = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,day:'numeric',month:'short'});
 const fmtMonth = new Intl.DateTimeFormat('en-GB',{timeZone:'UTC',month:'long',year:'numeric'});
 const fmtParts = new Intl.DateTimeFormat('en-GB',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
 const parts = d => Object.fromEntries(fmtParts.formatToParts(d).map(x=>[x.type,x.value]));
@@ -261,11 +262,10 @@ async function load(){
   $('err').style.display='none';
   state.todayStart = ukDayStart(new Date());
   if (!state.view) state.view = state.todayStart;
-  if (!state.vm) state.vm = monKey(state.view);
-  try{
+    try{
     const nd = nextDay(state.view);
     const [tm, vmS, ndm] = await Promise.all([getMonth(monKey(state.todayStart)), getMonth(monKey(state.view)), getMonth(monKey(nd))]);
-    await getMonth(state.vm);
+    await Promise.all([...new Set(last30().map(monKey))].map(getMonth));
     state.today = daySlots(tm, state.todayStart);
     state.slots = daySlots(vmS, state.view);
     state.hasNext = daySlots(ndm, nd).length > 0;
@@ -362,25 +362,21 @@ function drawChart(){
 }
 
 // ---- month view
+function last30(){ const out=[]; let d=state.todayStart; for(let i=0;i<30;i++){ out.unshift(d); d=prevDay(d); } return out; }
 function monthDays(){
-  const key=state.vm, [a,b]=monthBounds(key), slots=state.data.get(key)||[], days=[];
-  for(let s=a; s<b; s=nextDay(s)){
-    const d=daySlots(slots,s), ps=d.map(x=>x.p);
-    days.push({start:s, n:d.length, avg:ps.length?ps.reduce((u,v)=>u+v,0)/ps.length:null, min:ps.length?Math.min(...ps):null, max:ps.length?Math.max(...ps):null});
-  }
-  return days;
+  return last30().map(s=>{
+    const d=daySlots(state.data.get(monKey(s))||[],s), ps=d.map(x=>x.p);
+    return {start:s, n:d.length, avg:ps.length?ps.reduce((u,v)=>u+v,0)/ps.length:null, min:ps.length?Math.min(...ps):null, max:ps.length?Math.max(...ps):null};
+  });
 }
 const daySummary = d => d.n ? `<b>${fmtDay.format(d.start)}</b> · avg ${pr(d.avg)} · low ${pr(d.min)} · high ${pr(d.max)}` : `<b>${fmtDay.format(d.start)}</b> · no data`;
 function drawMonth(){
-  if(!state.vm || !state.view) return;
+  if(!state.todayStart || !state.view) return;
   const svg=$('month'), W=svg.clientWidth||600, H=svg.clientHeight||110;
   svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-  const days=monthDays(), n=days.length, [a]=monthBounds(state.vm);
-  $('monthtitle').textContent = fmtMonth.format(new Date(Date.UTC(+state.vm.slice(0,4), +state.vm.slice(5)-1, 15)));
+  const days=monthDays(), n=days.length;
   const withData=days.filter(d=>d.n), mavg=withData.length?withData.reduce((s,d)=>s+d.avg,0)/withData.length:null;
-  $('monthsub').textContent = mavg===null ? 'No data' : `Daily average · month avg ${pr(mavg)}`;
-  const ck=monKey(state.todayStart);
-  $('mnext').disabled = state.vm >= ck;
+  $('monthsub').textContent = mavg===null ? 'No data' : `Daily average · 30-day avg ${pr(mavg)}`;
   const m={l:2,r:2,t:6,b:18}, iw=W-m.l-m.r, ih=H-m.t-m.b, bw=iw/n;
   const avgs=withData.map(d=>d.avg), lo=Math.min(0,...(avgs.length?avgs:[0])), hi=(Math.max(...(avgs.length?avgs:[1]))*1.08)||1;
   const y=v=>m.t+ih*(1-(v-lo)/(hi-lo));
@@ -393,8 +389,8 @@ function drawMonth(){
       out+=`<rect x="${bx}" y="${top}" width="${w}" height="${h}" rx="${r}" fill="${colour(d.avg)}" opacity="${isSel?1:.7}"/>`;
       if(isSel) out+=`<rect x="${bx-1.5}" y="${top-1.5}" width="${w+3}" height="${h+3}" rx="${r+1}" fill="none" stroke="var(--text)" stroke-width="1.5"/>`;
     } else out+=`<rect x="${bx}" y="${m.t+ih-3}" width="${w}" height="3" rx="1.5" fill="var(--line)"/>`;
-    const dn=i+1;
-    if(dn===1||dn%7===1&&dn<n-2||isToday) out+=`<text x="${bx+w/2}" y="${H-4}" text-anchor="middle" style="${isToday?'fill:var(--accent);font-weight:700':''}">${dn}</text>`;
+    const last=i===n-1;
+    if(i===0||i%7===0&&i<n-4||last) out+=`<text x="${last?bx+w:(i===0?bx:bx+w/2)}" y="${H-4}" text-anchor="${last?'end':(i===0?'start':'middle')}" style="${last?'fill:var(--accent);font-weight:700':''}">${last?'Today':fmtDM.format(d.start)}</text>`;
   });
   svg.innerHTML = out; svg._g={m,iw,n,days};
   const sel=days.find(d=>dayKey(d.start)===dayKey(state.view));
@@ -408,12 +404,10 @@ $('month').addEventListener('pointermove', e => { const d=monthPick(e); if(d) $(
 $('month').addEventListener('pointerleave', () => drawMonth());
 
 // ---- navigation
-function go(view){ state.view=view; state.vm=monKey(view); state.hover=null; $('tip').style.display='none'; load(); }
+function go(view){ state.view=view; state.hover=null; $('tip').style.display='none'; load(); }
 $('prev').onclick = () => go(prevDay(state.view));
 $('nextd').onclick = () => { if(state.hasNext) go(nextDay(state.view)); };
 $('todaybtn').onclick = () => go(state.todayStart);
-$('mprev').onclick = () => { state.vm=shiftMonth(state.vm,-1); load(); };
-$('mnext').onclick = () => { if(state.vm < monKey(state.todayStart)){ state.vm=shiftMonth(state.vm,1); load(); } };
 addEventListener('keydown', e => { if(/SELECT|INPUT/.test(e.target.tagName)) return;
   if(e.key==='ArrowLeft') $('prev').click(); else if(e.key==='ArrowRight') $('nextd').click(); });
 
