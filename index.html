@@ -214,8 +214,8 @@ svg text{fill:var(--muted);font-size:11px;font-family:inherit}
     <div class="tip" id="tip"></div>
     <div class="cmp" id="cmp"><span class="swatch"></span><label for="cmpsel">Compare with</label><select id="cmpsel" class="pill sm"></select><span class="cmpnote" id="cmpnote"></span></div>
     <div class="legend" id="legend">
-      <span><i style="background:var(--cheap)"></i>Cheap</span>
-      <span><i style="background:var(--mid)"></i>Average</span><span><i style="background:var(--high)"></i>Pricey</span><span><i style="background:var(--peak)"></i>Peak</span><span class="rule">ranked within the day: 20 / 30 / 30 / 20%</span>
+      <span><i style="background:var(--cheap)"></i>Great</span>
+      <span><i style="background:var(--mid)"></i>Good</span><span><i style="background:var(--high)"></i>Poor</span><span><i style="background:var(--peak)"></i>Avoid</span><span class="rule">ranked against the past week: 20 / 30 / 30 / 20%</span>
     </div>
   </section>
   <section class="card monthcard">
@@ -281,7 +281,7 @@ function syncModeUI(){
   const x = EXP();
   $('m-imp').setAttribute('aria-pressed', String(!x)); $('m-exp').setAttribute('aria-pressed', String(x));
   fillCmp(); $('cmpnote').textContent = '';
-  $('legend').innerHTML = x ? EXPORT_BANDS.map(b => `<span><i style="background:var(${b[0]})"></i>${b[1].replace(' export rate','')}</span>`).join('') + '<span class="rule">ranked within the day: 20 / 30 / 30 / 20%</span>' : LEG_IMP;
+  $('legend').innerHTML = x ? EXPORT_BANDS.map(b => `<span><i style="background:var(${b[0]})"></i>${b[1].replace(' export rate','')}</span>`).join('') + '<span class="rule">ranked against the past week: 20 / 30 / 30 / 20%</span>' : LEG_IMP;
   $('chart').setAttribute('aria-label', x ? 'Agile Outgoing export rates' : 'Agile prices');
 }
 function setMode(m){
@@ -323,16 +323,24 @@ const daySlots = start => state.days.get(dayKey(start)) || [];
 const pr = v => (v<0?'−':'') + Math.abs(v).toFixed(2) + 'p';
 const EXP = () => state.mode === 'export';
 const vatTxt = () => EXP() ? 'no VAT' : 'inc. VAT';
-// Bands are relative to the day shown (or to the days in the 30-day chart): the cheapest 20% of slots are "cheap",
-// the next 30% "average", the next 30% "pricey" and the top 20% "peak". Export is the mirror: lowest 20% "negative", then poor, average, good.
-const BANDS = [['--cheap','Cheap price'],['--mid','Average price'],['--high','Pricey right now'],['--peak','Peak price']];
-const EXPORT_BANDS = [['--peak','Negative export rate'],['--high','Poor export rate'],['--mid','Average export rate'],['--cheap','Good export rate']];
+// Bands rank a price against its context: the best 20% are "great", the next 30% "good", the next 30% "poor", the worst 20% "avoid".
+// Import: lowest price is best. Export: highest rate is best. A single day is ranked against the rolling week ending on it;
+// the 30-day chart ranks its daily averages against the whole 30+14-day window.
+const BANDS = [['--cheap','Great price'],['--mid','Good price'],['--high','Poor price'],['--peak','Avoid – high price']];
+const EXPORT_BANDS = [['--cheap','Great export rate'],['--mid','Good export rate'],['--high','Poor export rate'],['--peak','Avoid – low export rate']];
 let RANK = [];                                   // sorted values the current view is ranked against
 const rankSet = vals => { RANK = vals.filter(Number.isFinite).sort((u,v) => u-v); };
+const weekBefore = view => { const o=[]; let d=view; for(let i=0;i<6;i++){ d=prevDay(d); o.push(d); } return o; };
+const weekVals = view => {                       // every half-hour price in the 7 days ending on `view`
+  const out = []; let d = view;
+  for (let i=0;i<7;i++){ daySlots(d).forEach(x => out.push(x.p)); d = prevDay(d); }
+  if (state.slotsFc && view === state.view) state.slots.forEach(x => out.push(x.p));
+  return out;
+};
 const band = p => {
-  const n = RANK.length, below = n ? RANK.findIndex(v => v >= p) : 0, f = n ? (below < 0 ? 1 : below/n) : 0;
-  const k = f < .2 ? 0 : f < .5 ? 1 : f < .8 ? 2 : 3;
-  return (EXP() ? EXPORT_BANDS : BANDS)[k];
+  const n = RANK.length; let f = 0;
+  if (n){ if (EXP()){ const i = RANK.findIndex(v => v > p); f = (i < 0 ? 0 : n-i)/n; } else { const i = RANK.findIndex(v => v >= p); f = (i < 0 ? n : i)/n; } }
+  return (EXP() ? EXPORT_BANDS : BANDS)[f < .2 ? 0 : f < .5 ? 1 : f < .8 ? 2 : 3];
 };
 const colour = p => getComputedStyle(document.documentElement).getPropertyValue(band(p)[0]).trim();
 const curIdx = S => { const t=Date.now(); return S.findIndex(s => s.from<=t && t<s.to); };
@@ -458,7 +466,7 @@ async function load(){
   const apply = applyViewState;
   const prodName = () => DEMO ? 'DEMO' : ((curTariff() || {}).product || '');
   try{
-    await ensureDays([ts, tom, state.view, vn].filter(d => d <= tom));          // phase 1: just what the first paint needs
+    await ensureDays([ts, tom, state.view, vn, ...weekBefore(state.view)].filter(d => d <= tom));          // phase 1: just what the first paint needs
     if (state.loadTok!==tok) return;
     apply(); $('prod').textContent = prodName(); showTariff(); render(); loadOverlay(); loadContext();
     await ensureDays(last30());                           // phase 2: the 30-day strip
@@ -489,7 +497,7 @@ function render(){
   $('clock').textContent = fmtClock.format(t); $('date').textContent = fmtDate.format(t);
   if (S.length){
     if (i>=0){
-      rankSet(S.map(x=>x.p)); const b = band(S[i].p); hero.style.setProperty('--band', `var(${b[0]})`);
+      rankSet(weekVals(state.todayStart)); const b = band(S[i].p); hero.style.setProperty('--band', `var(${b[0]})`);
       $('status').textContent = b[1];
       $('now').textContent = (S[i].p<0?'−':'') + Math.abs(S[i].p).toFixed(2);
       $('nowslot').innerHTML = `<b>${fmtTime.format(S[i].from)}–${fmtTime.format(S[i].to)}</b> · ${EXP()?'export rate, no VAT':'inc. VAT'}`;
@@ -514,7 +522,7 @@ function drawChart(){
   if(!S.length){ svg.innerHTML=`<text x="${W/2}" y="${H/2}" text-anchor="middle" style="font-size:14px">No prices published for this day</text>`; svg._geom=null; return; }
   const m = {l:30,r:6,t:30,b:24}, iw = W-m.l-m.r, ih = H-m.t-m.b;
   const ov = state.overlay && state.overlay.rates.length===S.length ? state.overlay : null;
-  rankSet(S.map(s=>s.p));
+  rankSet(weekVals(state.view));
   const ps = S.map(s=>s.p).concat(ov ? ov.rates.filter(v=>v!==null) : []), lo = Math.min(0,...ps), hi = Math.max(...ps)*1.06||1;
   const y = v => m.t + ih*(1-(v-lo)/(hi-lo));
   const t0 = S[0].from.getTime(), t1 = S[S.length-1].to.getTime();
@@ -660,7 +668,7 @@ function drawMonth(){
   const mfs=state.mfsel && state.mfview===dayKey(state.view) ? state.mfsel : null;
   const days=monthDays(), n=days.length, hist=days.filter(d=>!d.fc), nh=hist.length, hasFc=n>nh;
   const withData=days.filter(d=>d.n), mavg=withData.length?withData.reduce((s,d)=>s+d.avg,0)/withData.length:null;
-  $('monthsub').textContent = mavg===null ? 'No data' : `Daily average · 30-day avg ${pr(mavg)}`;
+  $('monthsub').textContent = mavg===null ? 'No data' : `Daily average · 30-day avg ${pr(mavg)} · colours rank the whole window`;
   const m={l:2,r:2,t:6,b:18}, iw=W-m.l-m.r, ih=H-m.t-m.b, bw=iw/n;
   const avgs=withData.map(d=>d.avg).concat(days.filter(d=>d.fc).flatMap(d=>[d.fc.hi,d.fc.avg])), lo=Math.min(0,...(avgs.length?avgs:[0])), hi=(Math.max(...(avgs.length?avgs:[1]))*1.08)||1;
   const y=v=>m.t+ih*(1-(v-lo)/(hi-lo));
@@ -890,7 +898,7 @@ function pointer(e){
   const t=g.t0+(px-g.m.l)/g.iw*(g.t1-g.t0);
   const i=state.slots.findIndex(s=>s.from.getTime()<=t && t<s.to.getTime());
   if(i<0){ leave(); return; }
-  state.hover=i; const s=state.slots[i], tip=$('tip'); rankSet(state.slots.map(x=>x.p));
+  state.hover=i; const s=state.slots[i], tip=$('tip'); rankSet(weekVals(state.view));
   tip.innerHTML=`<b>${state.slotsFc?'~':''}${pr(s.p).replace('p','')} p/kWh${state.slotsFc?' (forecast)':''}</b>${fmtTime.format(s.from)}–${fmtTime.format(s.to)} · ${band(s.p)[1].split(' ')[0]}${(state.overlay&&state.overlay.rates[i]!=null)?`<br>${state.overlay.name.replace(' Octopus','').replace('Octopus ','')}: ${pr(state.overlay.rates[i])}`:''}`;
   tip.style.display='block';
   const wr=svg.parentElement.getBoundingClientRect();

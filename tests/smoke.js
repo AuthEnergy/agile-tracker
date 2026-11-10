@@ -186,7 +186,7 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
       await page.selectOption('#cmpsel', 'none'); await page.waitForTimeout(300); }
     check((await t('#whyh')).startsWith('Why export rates'), `export: Why box heading (${await t('#whyh')})`);
     check(/Best 2 hours to export/.test(await t('#whyl')), `export: Why box should name the best export window (${await t('#whyl')})`);
-    check(/Negative/.test(await t('#legend')), 'export: legend should be the export one');
+    check(/Avoid/.test(await t('#legend')), 'export: legend should be the export one');
     await page.screenshot({ path: 'test-results/export-desktop.png' });
     check(/Agile Outgoing Octopus May 2019 · AGILE-OUTGOING-19-05-13/.test(await t('#tname')), `export: tariff name at the top (${await t('#tname')})`);
     check(await page.locator('#chart rect').count() >= 48, 'export: main chart should still have 48 bars');
