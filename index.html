@@ -221,7 +221,10 @@ svg text{fill:var(--muted);font-size:11px;font-family:inherit}
     <h2 id="about-h">About Agile Tracker</h2>
     <details><summary>What is Octopus Agile?</summary><p>Agile Octopus is a time-of-use electricity tariff from Octopus Energy where the unit rate changes every half hour, following the wholesale market. Next-day prices are usually published in the afternoon (around 4pm UK time). Prices can go negative when supply is high and demand is low, which means you are paid to use electricity.</p></details>
     <details><summary>Why are prices higher between 4pm and 7pm?</summary><p>Agile adds a fixed premium (roughly 11–14p/kWh depending on region) between 16:00 and 19:00, when demand is highest. The price is also capped at 100p/kWh including VAT.</p></details>
-    <details><summary>Where does the data come from?</summary><p>Prices come from Octopus Energy's public API. The explanation uses national generation mix and carbon intensity from the NESO Carbon Intensity API and regional weather from Open-Meteo. Everything is fetched directly in your browser; there is no server and no account.</p></details>
+    <details><summary>How is the 14-day forecast calculated?</summary>
+      <p>Agile follows the wholesale day-ahead electricity price, so the forecast works in two steps. <b>1. Wholesale outlook.</b> Three times a day a small machine-learning model predicts Great Britain's hourly day-ahead price for the next 14 days. It learns from about two years of history and looks at the UK wind, temperature and sunshine forecast (Open-Meteo, six sites across the country), National Energy System Operator's demand forecast, the gas price (National Gas's System Average Price), the recent price level, hour of day, weekday and bank holidays. <b>2. Your Agile price.</b> Your region's formula, fitted to recent real Agile prices, turns each wholesale hour into half-hourly Agile rates: a regional multiple of the wholesale price, plus the 4pm–7pm peak charge, capped at 100p. When the real day-ahead prices are published, they replace the forecast.</p>
+      <p><b>How to read it.</b> Faded bars are forecast days and the thin line is the likely range (about 8 times in 10 the real daily average lands inside it). Weather forecasts lose skill after about a week, so days 8–14 show direction, not exact prices: on past data the daily average is off by roughly 12% the next day and 18–19% by day 14, and it calls the direction of big moves right about 8 times in 10. Each forecast day is a typical shape for that wholesale level, so half-hours are indicative only. Power station outages, gas price shocks and unusual weather can all move the real price. The model runs on a small server and its published file is public; your browser only downloads it and does the regional maths. It is an estimate, not advice.</p></details>
+    <details><summary>Where does the data come from?</summary><p>Prices come from Octopus Energy's public API. The explanation uses national generation mix and carbon intensity from the NESO Carbon Intensity API and regional weather from Open-Meteo. The 14-day outlook is a public JSON file (far.cx/uk-forecast.json) produced daily from NESO (day-ahead prices and demand forecast), Open-Meteo weather and National Gas gas prices. Your browser fetches everything directly; nothing about you is sent to us, and there is no account.</p></details>
     <details><summary>Is this an official Octopus Energy product?</summary><p>No. Agile Tracker is an independent tool by <a href="https://auth.energy" rel="noopener">Auth Energy</a>. Octopus Energy and Agile Octopus are trademarks of Octopus Energy Ltd.</p></details>
   </section>
   <div class="err" id="err" role="alert"></div>
@@ -391,7 +394,7 @@ async function load(){
     apply(); $('prod').textContent = prodName(); render(); loadOverlay(); loadContext();
     await ensureDays(last30());                           // phase 2: the 30-day strip
     if (state.loadTok!==tok) return;
-    apply(); drawMonth();
+    apply(); drawMonth(); renderWhy();                    // renderWhy picks up the outlook line once the 30-day strip is known
     if (last30()[29] > ts) await ensureDays(last30());    // tomorrow appeared in phase 2
   }catch(e){
     console.error(e);
@@ -543,6 +546,7 @@ function fcErr(h){ // typical daily error (%) at horizon h: measured once logged
 }
 function renderOutlook(days, hist){
   const el=$('outlook'), fcd=days.filter(d=>d.fc);
+  state.outlookLine=null;
   if(!fcd.length){ el.hidden=true; $('mlegend').hidden=true; return; }
   el.hidden=false; $('mlegend').hidden=false;
   const past=hist.filter(d=>d.n).slice(-7); if(past.length<4){ el.hidden=true; return; }
@@ -555,6 +559,8 @@ function renderOutlook(days, hist){
   const all=[...(tomorrow?[tomorrow]:[]), ...fcd.map(d=>({start:d.start,avg:d.fc.avg}))];
   let turn=null; for(let i=0;i<all.length-2;i++){ const dev=all.slice(i,i+3).map(d=>pc(d.avg)); if(dev.every(x=>x>10)||dev.every(x=>x<-10)){ turn={d:all[i].start,up:dev[0]>0}; break; } }
   const cheap=all.reduce((a,b)=>b.avg<a.avg?b:a), dear=all.reduce((a,b)=>b.avg>a.avg?b:a);
+  state.outlookLine = (lp>7 ? `Next two weeks: prices look set to rise, about ${Math.round(lp)}% above last week` : lp<-7 ? `Next two weeks: prices look set to fall, about ${Math.round(-lp)}% below last week` : 'Next two weeks: no clear rise or fall expected')
+    + (turn ? `, shifting from ${fmtDay.format(turn.d)}` : '') + ` (forecast, region ${state.region})`;
   const e1=fcErr(1), e14=fcErr(14), fx=state.fc;
   const upd=fx.generated?new Intl.DateTimeFormat('en-GB',{timeZone:TZ,weekday:'short',hour:'2-digit',minute:'2-digit'}).format(new Date(fx.generated)):'';
   const stale = fx.generated && Date.now()-Date.parse(fx.generated) > 36*3600e3;
@@ -602,7 +608,7 @@ function drawMonth(){
     }
     if(d.n){
       const top=Math.min(y(0),y(d.avg)), h=Math.max(3,Math.abs(y(0)-y(d.avg)));
-      out+=`<rect x="${bx}" y="${top}" width="${w}" height="${h}" rx="${r}" fill="${colour(d.avg)}" opacity="${(isSel||isHov)?1:(eff()==='dark'?.7:.88)}"/>`;
+      out+=`<rect x="${bx}" y="${top}" width="${w}" height="${h}" rx="${r}" fill="${isToday?'var(--accent)':colour(d.avg)}" opacity="${(isSel||isHov||isToday)?1:(eff()==='dark'?.7:.88)}"/>`;
       if(isSel||isHov) out+=`<rect x="${bx-1.5}" y="${top-1.5}" width="${w+3}" height="${h+3}" rx="${r+1}" fill="none" stroke="var(--text)" stroke-width="${isHov?2:1.5}" ${isHov&&!isSel?'stroke-dasharray="0" opacity=".75"':''}/>`;
     } else out+=`<rect x="${bx}" y="${m.t+ih-3}" width="${w}" height="3" rx="1.5" fill="var(--line)"/>`;
     const ti = days.findIndex(x=>dayKey(x.start)===dayKey(state.todayStart));
@@ -753,7 +759,7 @@ function explain(){ // day-level: why is *today* cheap / pricey / average?
     else if (cav<=110) F.push({d:-1,w:28,t:'🌍',x:`Clean grid today (~${r(cav)} g/kWh) – plenty of low-cost supply`}); }
   // weather in your region
   let tmin=null, tmax=null; const w=ctx.wx;
-  if (w){ const ix=w.times.map((t,i)=>i).filter(i=>{ const ms_=Date.parse(w.times[i]+':00Z'); return ms_>=t0 && ms_<t1; });
+  if (w && w.times){ const ix=w.times.map((t,i)=>i).filter(i=>{ const ms_=Date.parse(w.times[i]+':00Z'); return ms_>=t0 && ms_<t1; });
     if (ix.length>=12){ const T=ix.map(i=>w.temp[i]), WS=ix.map(i=>w.wind[i]), CL=ix.map(i=>w.cloud[i]), SU=ix.map(i=>w.sun[i]);
       tmin=Math.min(...T); tmax=Math.max(...T); const ta=mean(T), wa=mean(WS), ca=mean(CL), sx=Math.max(...SU);
       if (ta<=4) F.push({d:1,w:42,t:'🌡️',x:`Cold (${trange(tmin,tmax)}) means high heating demand`});
@@ -768,6 +774,7 @@ function explain(){ // day-level: why is *today* cheap / pricey / average?
   if (S.length>=4){ const W=4; let b=0,ba=Infinity; for(let i=0;i+W<=S.length;i++){ const a=mean(ps.slice(i,i+W)); if(a<ba){ba=a;b=i;} }
     const pk=S[ps.indexOf(Math.max(...ps))], negN=ps.filter(v=>v<0).length;
     items.push({t:'📈',x:`Cheapest 2 hours: ${hh(S[b].from)}–${hh(S[b+W-1].to)} (avg ${pr(ba)}). Dearest: ${hh(pk.from)} at ${pr(pk.p)}${negN?`. Negative for ${negN/2}h`:''}`}); }
+  if (state.outlookLine) items.push({t:'🔮',x:state.outlookLine});
   const bits=[`Avg ${pr(avg)}`+(avg30!==null?` vs ${pr(avg30)} 30-day avg`:'')];
   if (tmin!==null) bits.push(trange(tmin,tmax));
   return {head:`Why today is ${rel}`, items, foot:bits.join(' · '), mix:mixseg};
