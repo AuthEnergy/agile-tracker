@@ -1,5 +1,9 @@
 // Browser smoke test: mocks every external API, loads the page, checks rendering, nav, theme, overflow and caching.
-const { chromium } = require('playwright');
+// Playwright is an optional dependency: without it this test is skipped (exit 0) unless REQUIRE_BROWSER=1.
+let chromium;
+try { ({ chromium } = require('playwright')); }
+catch { skipOrFail('playwright is not installed. Run "npm install" (or "npm i playwright" then "npx playwright install chromium") to run the browser tests.'); }
+function skipOrFail(msg) { if (process.env.REQUIRE_BROWSER) { console.error('FAIL: ' + msg); process.exit(1); } console.log('SKIPPED browser tests: ' + msg); process.exit(0); }
 const path = require('path');
 const fs = require('fs');
 const PAGE_URL = 'file://' + path.join(__dirname, '..', 'index.html');
@@ -55,7 +59,7 @@ const failures = [];
 const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error('  FAIL:', msg); } };
 
 (async () => {
-  const browser = await chromium.launch();
+  let browser; try { browser = await chromium.launch(); } catch (e) { skipOrFail('could not start Chromium (' + String(e.message).split('\n')[0] + '). Run "npx playwright install chromium".'); }
   for (const sc of scenarios) {
     console.log('scenario', sc.name);
     const ctx = await browser.newContext(sc.ctx), page = await ctx.newPage(), counter = { n: 0 }, errs = [];

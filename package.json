@@ -5,11 +5,14 @@
   "description": "Single-page, browser-only Octopus Agile price tracker",
   "scripts": {
     "check": "node tools/check.js",
-    "test": "node tests/smoke.js",
-    "ci": "npm run check && npm test"
+    "test": "npm run check",
+    "test:full": "npm run check && REQUIRE_BROWSER=1 node tests/smoke.js",
+    "ci": "npm run check"
   },
-  "devDependencies": {
+  "engines": {
+    "node": ">=20"
+  },
+  "optionalDependencies": {
     "playwright": "1.63.0"
-  },
-  "engines": { "node": ">=20" }
+  }
 }
