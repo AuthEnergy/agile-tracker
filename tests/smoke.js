@@ -43,7 +43,7 @@ async function mock(page, counter, noForecast) {
     if (u.includes('/standard-unit-rates/')) {
       if (u.includes('FLEX')) return json(r, { results: [{ valid_from: '2026-04-01T00:00:00Z', valid_to: null, value_inc_vat: 26.3, payment_method: 'DIRECT_DEBIT' }], next: null });
       const q = new URL(u).searchParams, from = Date.parse(q.get('period_from')), to = Date.parse(q.get('period_to')), res = [];
-      for (let t = Math.max(from, DATA_START); t < to && t < DATA_END; t += 1800e3) res.push({ valid_from: new Date(t).toISOString(), valid_to: new Date(t + 1800e3).toISOString(), value_inc_vat: u.includes('OUTGOING') ? +(price(t) / 2.5).toFixed(2) : price(t) });
+      for (let t = Math.max(from, DATA_START); t < to && t < DATA_END; t += 1800e3) res.push({ valid_from: new Date(t).toISOString(), valid_to: new Date(t + 1800e3).toISOString(), value_inc_vat: u.includes('OUTGOING') ? ((t % 864e5 >= 16 * 36e5 && t % 864e5 < 19 * 36e5) ? 33 : +(price(t) / 2.5).toFixed(2)) : price(t) });
       return json(r, { results: res.reverse(), next: null }); }
     if (/\/products\/(FLEX|AGILE|FLUX)[^/]*\/$/.test(u)) return json(r, { single_register_electricity_tariffs: { _C: { direct_debit_monthly: { code: u.includes('FLEX') ? 'E-1R-FLEX-C' : 'E-1R-AGILE-24-10-01-C' } } } });
     return json(r, { results: [{ code: 'AGILE-24-10-01', display_name: 'Agile Octopus', full_name: 'Agile Octopus October 2024 v1', available_to: null, is_business: false, is_prepay: false }, { code: 'FLEX-1', display_name: 'Flexible Octopus', available_to: null, is_business: false, is_prepay: false }, { code: 'AGILE-OUTGOING-19-05-13', display_name: 'Agile Outgoing Octopus', full_name: 'Agile Outgoing Octopus May 2019', direction: 'EXPORT', available_to: null, is_business: false, is_prepay: false }, { code: 'FLUX-EXPORT-23-02-14', display_name: 'Octopus Flux Export', direction: 'EXPORT', available_to: null, is_business: false, is_prepay: false }], next: null }); });
@@ -100,6 +100,7 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
     check(await page.locator('#month rect[fill="var(--accent)"]').count() === 1, `${sc.name}: today's bar should be blue (accent) in the 30-day chart`);
     check(await page.locator('details:has-text("How is the 14-day forecast calculated?")').count() === 1, `${sc.name}: forecast explainer missing from About`);
     check(/Agile Octopus October 2024 v1 · AGILE-24-10-01 · region C/.test(await t('#tname')), `${sc.name}: tariff name missing at the top (${await t('#tname')})`);
+    check(await page.locator('#chart path[fill="var(--blue)"]').count() === 10, `${sc.name}: negative import slots (00:00-05:00) should carry a blue tip (${await page.locator('#chart path[fill="var(--blue)"]').count()})`);
     check(await page.locator('details:has-text("Source code and feedback") a[href="https://github.com/AuthEnergy/agile-tracker"]').count() === 1, `${sc.name}: About should link to the repo`);
     check(await page.locator('#whymix .mixbar i').count() >= 3, `${sc.name}: generation mix bar missing`);
     check(await page.isEnabled('#nextd'), `${sc.name}: next-day should be enabled when tomorrow is published`);
@@ -187,6 +188,7 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
     check((await t('#whyh')).startsWith('Why export rates'), `export: Why box heading (${await t('#whyh')})`);
     check(/Best 2 hours to export/.test(await t('#whyl')), `export: Why box should name the best export window (${await t('#whyl')})`);
     check(/Excellent/.test(await t('#legend')), 'export: legend should be the export one');
+    check(await page.locator('#chart path[fill="var(--blue)"]').count() === 6, `export: the excellent 16:00-19:00 export slots should carry a blue tip (${await page.locator('#chart path[fill="var(--blue)"]').count()})`);
     check(/Agile Outgoing Octopus May 2019 · AGILE-OUTGOING-19-05-13/.test(await t('#tname')), `export: tariff name at the top (${await t('#tname')})`);
     check(await page.locator('#chart rect').count() >= 48, 'export: main chart should still have 48 bars');
     check(await page.locator('#month rect[fill-opacity]').count() >= 12, 'export: forecast bars missing in the 30-day chart');
