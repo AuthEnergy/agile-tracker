@@ -100,6 +100,7 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
     check(await page.locator('#month rect[fill="var(--accent)"]').count() === 1, `${sc.name}: today's bar should be blue (accent) in the 30-day chart`);
     check(await page.locator('details:has-text("How is the 14-day forecast calculated?")').count() === 1, `${sc.name}: forecast explainer missing from About`);
     check(/Agile Octopus October 2024 v1 · AGILE-24-10-01 · region C/.test(await t('#tname')), `${sc.name}: tariff name missing at the top (${await t('#tname')})`);
+    check(await page.locator('#chart path[fill="var(--deep)"]').count() > 0, `${sc.name}: peak import slots should carry a deep red tip`);
     check(await page.locator('#chart path[fill="var(--blue)"]').count() === 10, `${sc.name}: negative import slots (00:00-05:00) should carry a blue tip (${await page.locator('#chart path[fill="var(--blue)"]').count()})`);
     check(await page.locator('details:has-text("Source code and feedback") a[href="https://github.com/AuthEnergy/agile-tracker"]').count() === 1, `${sc.name}: About should link to the repo`);
     check(await page.locator('#whymix .mixbar i').count() >= 3, `${sc.name}: generation mix bar missing`);
@@ -189,6 +190,7 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
     check(/Best 2 hours to export/.test(await t('#whyl')), `export: Why box should name the best export window (${await t('#whyl')})`);
     check(/Excellent/.test(await t('#legend')), 'export: legend should be the export one');
     await page.screenshot({ path: 'test-results/export-desktop.png' });
+    check(await page.locator('#chart path[fill="var(--deep)"]').count() === 10, 'export: negative slots (00:00-05:00) should be deep red');
     check(await page.locator('#chart path[fill="var(--blue)"]').count() === 6, `export: the excellent 16:00-19:00 export slots should carry a blue tip (${await page.locator('#chart path[fill="var(--blue)"]').count()})`);
     check(/Agile Outgoing Octopus May 2019 · AGILE-OUTGOING-19-05-13/.test(await t('#tname')), `export: tariff name at the top (${await t('#tname')})`);
     check(await page.locator('#chart rect').count() >= 48, 'export: main chart should still have 48 bars');
