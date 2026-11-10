@@ -19,8 +19,8 @@ function forecastFile() {
   for (let d = 0; d < 13; d++) { const day0 = Date.parse('2026-11-08T00:00:00Z') + d * 864e5, mean = 150 + 25 * Math.sin(d / 2) + (d > 8 ? 30 : 0);
     days.push({ date: new Date(day0).toISOString().slice(0, 10), h: d + 2, mean, p10: mean - 20, p90: mean + 20, published: false });
     for (let h = 0; h < 24; h++) { hours.push(new Date(day0 + h * 36e5).toISOString()); p50.push(mean + (h >= 16 && h < 20 ? 30 : h < 6 ? -25 : 0)); } }
-  const regions = {}; for (const r of 'ABCDEFGHJKLMNP') regions[r] = { m: 1.2, adder: 12, c: 3, cap: 100 };
-  return { version: 1, issue_date: '2026-11-06', generated: '2026-11-06T11:30:00Z', status: 'ok', notes: [], days, wholesale: { hours_utc: hours, p50 }, regions,
+  const regions = {}, exp = {}; for (const r of 'ABCDEFGHJKLMNP') { regions[r] = { m: 1.2, adder: 12, c: 3, cap: 100 }; exp[r] = { m: 0.97, adder: 0, c: 0.4, cap: null, floor: null }; }
+  return { version: 1, issue_date: '2026-11-06', generated: '2026-11-06T11:30:00Z', status: 'ok', notes: [], days, wholesale: { hours_utc: hours, p50 }, regions, export: exp,
     accuracy: { backtest: [{ h: 1, daily_mae_pct: 12.4, trend_hit_pct: 90 }, { h: 14, daily_mae_pct: 18.3, trend_hit_pct: 70 }], logged: [] } };
 }
 async function mock(page, counter, noForecast) {
@@ -43,10 +43,10 @@ async function mock(page, counter, noForecast) {
     if (u.includes('/standard-unit-rates/')) {
       if (u.includes('FLEX')) return json(r, { results: [{ valid_from: '2026-04-01T00:00:00Z', valid_to: null, value_inc_vat: 26.3, payment_method: 'DIRECT_DEBIT' }], next: null });
       const q = new URL(u).searchParams, from = Date.parse(q.get('period_from')), to = Date.parse(q.get('period_to')), res = [];
-      for (let t = Math.max(from, DATA_START); t < to && t < DATA_END; t += 1800e3) res.push({ valid_from: new Date(t).toISOString(), valid_to: new Date(t + 1800e3).toISOString(), value_inc_vat: price(t) });
+      for (let t = Math.max(from, DATA_START); t < to && t < DATA_END; t += 1800e3) res.push({ valid_from: new Date(t).toISOString(), valid_to: new Date(t + 1800e3).toISOString(), value_inc_vat: u.includes('OUTGOING') ? +(price(t) / 2.5).toFixed(2) : price(t) });
       return json(r, { results: res.reverse(), next: null }); }
     if (/\/products\/(FLEX|AGILE)[^/]*\/$/.test(u)) return json(r, { single_register_electricity_tariffs: { _C: { direct_debit_monthly: { code: u.includes('FLEX') ? 'E-1R-FLEX-C' : 'E-1R-AGILE-24-10-01-C' } } } });
-    return json(r, { results: [{ code: 'AGILE-24-10-01', display_name: 'Agile Octopus', available_to: null, is_business: false, is_prepay: false }, { code: 'FLEX-1', display_name: 'Flexible Octopus', available_to: null, is_business: false, is_prepay: false }], next: null }); });
+    return json(r, { results: [{ code: 'AGILE-24-10-01', display_name: 'Agile Octopus', available_to: null, is_business: false, is_prepay: false }, { code: 'FLEX-1', display_name: 'Flexible Octopus', available_to: null, is_business: false, is_prepay: false }, { code: 'AGILE-OUTGOING-19-05-13', display_name: 'Agile Outgoing Octopus', direction: 'EXPORT', available_to: null, is_business: false, is_prepay: false }], next: null }); });
 }
 
 const scenarios = [
@@ -149,6 +149,41 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
     check(await page.locator('#outlook').isHidden(), 'nofc: outlook should be hidden');
     check((await page.textContent('#monthtitle')) === 'Last 30 days', 'nofc: title should stay "Last 30 days"');
     check(errs.length === 0, 'nofc: page errors ' + errs.join('|')); await ctx.close();
+  }
+  { // export view (Agile Outgoing): toggle, reversed colours, no VAT, forecast from the export formula, persistence
+    const ctx = await browser.newContext({ viewport: { width: 1100, height: 900 } }), page = await ctx.newPage(), errs = [];
+    page.on('pageerror', e => errs.push(e.message));
+    await page.addInitScript(`(()=>{const R=Date,off=${NOW}-R.now();class D extends R{constructor(...a){if(a.length===0)super(R.now()+off);else super(...a);}static now(){return R.now()+off}}window.Date=D;})()`);
+    await mock(page, { n: 0 }); await page.goto(PAGE_URL);
+    await page.waitForFunction(() => /\d/.test(document.querySelector('#now').textContent), null, { timeout: 10000 }); await page.waitForTimeout(1200);
+    const t = id => page.textContent(id), impNow = parseFloat((await t('#now')).replace('−', '-'));
+    check(await page.getAttribute('#m-imp', 'aria-pressed') === 'true', 'export: import should be the default view');
+    await page.click('#m-exp');
+    await page.waitForFunction(() => /export/i.test(document.querySelector('#status').textContent), null, { timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(1200);
+    const expNow = parseFloat((await t('#now')).replace('−', '-'));
+    check(await page.getAttribute('#m-exp', 'aria-pressed') === 'true', 'export: toggle should show export pressed');
+    check(/export/i.test(await t('#status')), `export: status should speak of export rates (${await t('#status')})`);
+    check(expNow > 0 && expNow < impNow, `export: export rate (${expNow}) should differ from, and be below, the import price (${impNow})`);
+    check(/no VAT/.test(await t('#daysub')) && /no VAT/.test(await t('#nowslot')), 'export: labels should say no VAT');
+    check(await page.locator('#cmp').isHidden(), 'export: tariff comparison should be hidden');
+    check((await t('#whyh')).startsWith('Why export rates'), `export: Why box heading (${await t('#whyh')})`);
+    check(/Best 2 hours to export/.test(await t('#whyl')), `export: Why box should name the best export window (${await t('#whyl')})`);
+    check(/Excellent/.test(await t('#legend')), 'export: legend should be the export one');
+    check(await page.locator('#chart rect').count() >= 48, 'export: main chart should still have 48 bars');
+    check(await page.locator('#month rect[fill-opacity]').count() >= 12, 'export: forecast bars missing in the 30-day chart');
+    check(/Best export day ahead/.test(await t('#outlook')), `export: outlook wording (${await t('#outlook')})`);
+    { await page.locator('#month').scrollIntoViewIfNeeded(); const b = await page.locator('#month').boundingBox(); await page.waitForTimeout(700);
+      await page.mouse.click(b.x + b.width * 0.995, b.y + b.height / 2);
+      await page.waitForFunction(() => /forecast/.test(document.querySelector('#daysub').textContent), null, { timeout: 5000 }).catch(() => {});
+      check(/forecast/.test(await t('#daysub')) && /no VAT/.test(await t('#daysub')), `export: forecast day should open in the 24h chart (${await t('#daysub')})`); }
+    await page.reload(); await page.waitForFunction(() => /\d/.test(document.querySelector('#now').textContent), null, { timeout: 10000 });
+    check(await page.getAttribute('#m-exp', 'aria-pressed') === 'true', 'export: choice should persist across a reload');
+    await page.click('#m-imp'); await page.waitForTimeout(1200);
+    check(!/export/i.test(await t('#status')) && (await t('#whyh')).startsWith('Why today'), 'export: switching back should restore the import view');
+    check(await page.locator('#cmp').isVisible(), 'export: comparison should return in the import view');
+    check(Math.abs(parseFloat((await t('#now')).replace('−', '-')) - impNow) < 0.01, 'export: import price should be unchanged after toggling back');
+    check(errs.length === 0, 'export: page errors ' + errs.join('|')); await ctx.close();
   }
   await browser.close();
   if (failures.length) { console.error(`\n${failures.length} smoke check(s) failed`); process.exit(1); }

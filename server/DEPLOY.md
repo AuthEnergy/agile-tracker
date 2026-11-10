@@ -34,6 +34,12 @@ Only the first run of each day writes a new log in `logs/`; later runs overwrite
 ```
 `sudo a2enmod headers && sudo systemctl reload apache2`
 
+## Agile Outgoing (export) formula
+`outlook.py` also fits the Agile Outgoing export formula per region (`export` block in the JSON, `_export` in `cache/regions.json`).
+It reuses the same wholesale forecast, so the model and cron job are unchanged. Deploying just means copying the new `outlook.py`;
+the first run after that adds ~40 Octopus API calls to fit the export block, then it refits weekly with the import fit.
+If the export fit fails the import forecast is unaffected (the page shows no export forecast).
+
 ## Health
 `status` in the JSON is `ok` or `degraded` (a feed failed, or the 6-week health gate failed and the naive forecast is published). `notes` says why.
 Measured accuracy (`accuracy.logged`) replaces the backtest estimate per horizon once 30 scored days exist.

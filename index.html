@@ -130,6 +130,10 @@ button.pill svg{width:18px;height:18px}
 button.pill.sm{width:32px;padding:0;font-size:1.1rem;line-height:1}
 button.pill.sm.txt{width:auto;padding:0 12px;font-size:.82rem;font-weight:600}
 .pill:disabled{opacity:.35;cursor:default}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;background:var(--card);box-shadow:var(--shadow);padding:2px;gap:2px;flex:none}
+.seg button{height:32px;border:0;border-radius:999px;background:transparent;color:var(--muted);font:inherit;font-size:.85rem;font-weight:600;padding:0 12px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:#fff}
+.seg button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .charthead span.sm{font-weight:500}
 .monthcard{padding:16px 14px 14px}
 #month{display:block;width:100%;height:110px;cursor:pointer;touch-action:pan-y;user-select:none;-webkit-user-select:none}
@@ -167,6 +171,7 @@ svg text{fill:var(--muted);font-size:11px;font-family:inherit}
   <header>
     <h1 class="brand"><span class="logo"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg></span><span>Agile Tracker</span></h1>
     <div class="ctrls">
+      <div class="seg" role="group" aria-label="Tariff direction"><button id="m-imp" type="button" aria-pressed="true" title="Agile Octopus – what you pay to import">Import</button><button id="m-exp" type="button" aria-pressed="false" title="Agile Outgoing – what you are paid to export">Export</button></div>
       <select id="region" class="pill" aria-label="Region"></select>
       <button id="theme" class="pill" aria-label="Toggle light/dark theme" title="Toggle light/dark">
         <svg id="ico-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
@@ -203,8 +208,8 @@ svg text{fill:var(--muted);font-size:11px;font-family:inherit}
       <div class="daynav"><button id="prev" class="pill sm" aria-label="Previous day" title="Previous day (←)">‹</button><button id="todaybtn" class="pill sm txt">Today</button><button id="nextd" class="pill sm" aria-label="Next day" title="Next day (→)">›</button></div></div>
     <svg id="chart" role="img" aria-label="Agile prices today"></svg>
     <div class="tip" id="tip"></div>
-    <div class="cmp"><span class="swatch"></span><label for="cmpsel">Compare with</label><select id="cmpsel" class="pill sm"></select><span class="cmpnote" id="cmpnote"></span></div>
-    <div class="legend">
+    <div class="cmp" id="cmp"><span class="swatch"></span><label for="cmpsel">Compare with</label><select id="cmpsel" class="pill sm"></select><span class="cmpnote" id="cmpnote"></span></div>
+    <div class="legend" id="legend">
       <span><i style="background:var(--neg)"></i>Negative</span><span><i style="background:var(--cheap)"></i>Cheap</span>
       <span><i style="background:var(--mid)"></i>Average</span><span><i style="background:var(--high)"></i>Pricey</span><span><i style="background:var(--peak)"></i>Peak</span>
     </div>
@@ -220,11 +225,12 @@ svg text{fill:var(--muted);font-size:11px;font-family:inherit}
   <section class="card about" aria-labelledby="about-h">
     <h2 id="about-h">About Agile Tracker</h2>
     <details><summary>What is Octopus Agile?</summary><p>Agile Octopus is a time-of-use electricity tariff from Octopus Energy where the unit rate changes every half hour, following the wholesale market. Next-day prices are usually published in the afternoon (around 4pm UK time). Prices can go negative when supply is high and demand is low, which means you are paid to use electricity.</p></details>
+    <details><summary>What is Agile Outgoing (the Export view)?</summary><p>Agile Outgoing is Octopus Energy's export tariff: it pays you per kWh you send back to the grid (solar, battery) at a half-hourly rate that follows the same wholesale market as Agile Octopus. Unlike Agile import it has no 4pm–7pm premium, so the best time to export is simply when wholesale prices are highest, often the evening peak or a cold, still morning. Export rates carry no VAT. In the Export view colours are reversed: green is a high (good) rate and red is a low or negative one, because on negative rates exporting costs you money. The 14-day outlook uses the same wholesale forecast with an export formula fitted to recent real Agile Outgoing rates, so it is a little less certain than the import view. You need an Agile Outgoing agreement and an export meter to be paid; this page only shows the rates.</p></details>
     <details><summary>Why are prices higher between 4pm and 7pm?</summary><p>Agile adds a fixed premium (roughly 11–14p/kWh depending on region) between 16:00 and 19:00, when demand is highest. The price is also capped at 100p/kWh including VAT.</p></details>
     <details><summary>How is the 14-day forecast calculated?</summary>
       <p>Agile follows the wholesale day-ahead electricity price, so the forecast works in two steps. <b>1. Wholesale outlook.</b> Three times a day a small machine-learning model predicts Great Britain's hourly day-ahead price for the next 14 days. It learns from about two years of history and looks at the UK wind, temperature and sunshine forecast (Open-Meteo, six sites across the country), National Energy System Operator's demand forecast, the gas price (National Gas's System Average Price), the recent price level, hour of day, weekday and bank holidays. <b>2. Your Agile price.</b> Your region's formula, fitted to recent real Agile prices, turns each wholesale hour into half-hourly Agile rates: a regional multiple of the wholesale price, plus the 4pm–7pm peak charge, capped at 100p. When the real day-ahead prices are published, they replace the forecast.</p>
       <p><b>How to read it.</b> Faded bars are forecast days and the thin line is the likely range (about 8 times in 10 the real daily average lands inside it). Weather forecasts lose skill after about a week, so days 8–14 show direction, not exact prices: on past data the daily average is off by roughly 12% the next day and 18–19% by day 14, and it calls the direction of big moves right about 8 times in 10. Each forecast day is a typical shape for that wholesale level, so half-hours are indicative only. Power station outages, gas price shocks and unusual weather can all move the real price. The model runs on a small server and its published file is public; your browser only downloads it and does the regional maths. It is an estimate, not advice.</p></details>
-    <details><summary>Where does the data come from?</summary><p>Prices come from Octopus Energy's public API. The explanation uses national generation mix and carbon intensity from the NESO Carbon Intensity API and regional weather from Open-Meteo. The 14-day outlook is a public JSON file (far.cx/uk-forecast.json) produced daily from NESO (day-ahead prices and demand forecast), Open-Meteo weather and National Gas gas prices. Your browser fetches everything directly; nothing about you is sent to us, and there is no account.</p></details>
+    <details><summary>Where does the data come from?</summary><p>Import (Agile Octopus) and export (Agile Outgoing) prices come from Octopus Energy's public API. The explanation uses national generation mix and carbon intensity from the NESO Carbon Intensity API and regional weather from Open-Meteo. The 14-day outlook is a public JSON file (far.cx/uk-forecast.json) produced daily from NESO (day-ahead prices and demand forecast), Open-Meteo weather and National Gas gas prices. Your browser fetches everything directly; nothing about you is sent to us, and there is no account.</p></details>
     <details><summary>Is this an official Octopus Energy product?</summary><p>No. Agile Tracker is an independent tool by <a href="https://auth.energy" rel="noopener">Auth Energy</a>. Octopus Energy and Agile Octopus are trademarks of Octopus Energy Ltd.</p></details>
   </section>
   <div class="err" id="err" role="alert"></div>
@@ -242,7 +248,8 @@ const $ = id => document.getElementById(id);
 const store = {get(k){try{return localStorage.getItem(k)}catch{return null}},set(k,v){try{localStorage.setItem(k,v)}catch{}}};
 const params = new URLSearchParams(location.search);
 const DEMO = params.has('demo');
-let state = {region: store.get('region') || store.get('regionAuto') || 'C', tariff:null, tariffRegion:null,
+const MODE0 = (params.get('mode') || store.get('mode')) === 'export' ? 'export' : 'import';
+let state = {mode:MODE0, region: store.get('region') || store.get('regionAuto') || 'C', tariff:null, tariffRegion:null, tariffMode:null,
   days:new Map(), view:null, todayStart:null, slots:[], today:[], hasNext:false, tomorrow:false, overlay:null, ctx:null, hover:null};
 
 // ---- theme
@@ -251,6 +258,23 @@ function applyTheme(t){ if(t) document.documentElement.dataset.theme = t; else d
 { const t=store.get('theme'); if(t) document.documentElement.dataset.theme=t; document.documentElement.dataset.eff=eff(); }
 $('theme').onclick = () => { const next = eff()==='dark'?'light':'dark'; store.set('theme', next); applyTheme(next); };
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => applyTheme(store.get('theme')));
+
+// ---- import / export toggle
+const LEG_IMP = $('legend').innerHTML;
+function syncModeUI(){
+  const x = EXP();
+  $('m-imp').setAttribute('aria-pressed', String(!x)); $('m-exp').setAttribute('aria-pressed', String(x));
+  $('cmp').style.display = x ? 'none' : '';
+  $('legend').innerHTML = x ? EXPORT_BANDS.map(b => `<span><i style="background:var(${b[1]})"></i>${b[2].replace(' right now','').replace(' export rate','')}</span>`).join('') : LEG_IMP;
+  $('chart').setAttribute('aria-label', x ? 'Agile Outgoing export rates' : 'Agile prices');
+}
+function setMode(m){
+  if (state.mode===m) return;
+  state.mode = m; store.set('mode', m); syncModeUI();
+  state.tariff=null; state.days.clear(); state.overlay=null; state.mfsel=null; state.hover=null; $('tip').style.display='none';
+  state.view=state.todayStart; if(state.fc && state.todayStart){ applyViewState(); } load();
+}
+$('m-imp').onclick = () => setMode('import'); $('m-exp').onclick = () => setMode('export');
 
 // ---- region
 for (const [k,v] of Object.entries(REGIONS)) $('region').add(new Option(`${k} – ${v}`, k));
@@ -281,8 +305,12 @@ const nextDay = s => ukDayStart(new Date(s.getTime()+36*3600e3));
 const prevDay = s => ukDayStart(new Date(s.getTime()-12*3600e3));
 const daySlots = start => state.days.get(dayKey(start)) || [];
 const pr = v => (v<0?'−':'') + Math.abs(v).toFixed(2) + 'p';
+const EXP = () => state.mode === 'export';
+const vatTxt = () => EXP() ? 'no VAT' : 'inc. VAT';
 const BANDS = [[0,'--neg','Negative – paid to use'],[15,'--cheap','Cheap right now'],[25,'--mid','Average price'],[35,'--high','Pricey right now'],[Infinity,'--peak','Peak price']];
-const band = p => BANDS.find(b => p < b[0]);
+// export: colours reversed – a high rate is good for the exporter, negative means exporting costs money
+const EXPORT_BANDS = [[0,'--peak','Negative – exporting costs you'],[10,'--high','Low export rate right now'],[20,'--mid','Average export rate'],[30,'--cheap','Good export rate right now'],[Infinity,'--neg','Excellent export rate']];
+const band = p => (EXP() ? EXPORT_BANDS : BANDS).find(b => p < b[0]);
 const colour = p => getComputedStyle(document.documentElement).getPropertyValue(band(p)[1]).trim();
 const curIdx = S => { const t=Date.now(); return S.findIndex(s => s.from<=t && t<s.to); };
 
@@ -309,8 +337,9 @@ const LS = {
     ks.sort().slice(0,Math.ceil(ks.length/2)).forEach(k=>localStorage.removeItem(k)); }catch{} }
 };
 const SHORT = 10*60e3;
+const rk = () => state.region + (EXP() ? 'x' : '');   // cache key: export days are stored apart from import days
 function dayFromCache(start){
-  const e = LS.get(`d:${state.region}:${dayKey(start)}`); if(!e || !Array.isArray(e.p)) return null;
+  const e = LS.get(`d:${rk()}:${dayKey(start)}`); if(!e || !Array.isArray(e.p)) return null;
   const age = Date.now()-e.t, past = nextDay(start).getTime() < Date.now()-864e5;
   if (e.p.length>=46 || (e.p.length===0 && past && age<7*864e5) || age<SHORT)
     return e.p.map((p,i)=>({from:new Date((e.s+i*1800)*1000), to:new Date((e.s+(i+1)*1800)*1000), p}));
@@ -319,35 +348,37 @@ function dayFromCache(start){
 function dayToCache(start, slots){
   const s0 = slots.length ? slots[0].from.getTime()/1000 : 0;
   if (slots.some((x,i)=>x.from.getTime()/1000 !== s0+i*1800)) return; // non-contiguous: don't cache
-  LS.set(`d:${state.region}:${dayKey(start)}`, {t:Date.now(), s:s0, p:slots.map(x=>x.p)});
+  LS.set(`d:${rk()}:${dayKey(start)}`, {t:Date.now(), s:s0, p:slots.map(x=>x.p)});
 }
 // drop cached days older than 120 days
-try{ const cut=Date.now()-120*864e5; for(let i=localStorage.length-1;i>=0;i--){ const k=localStorage.key(i); const m=k&&/^agt:d:[A-P]:(\d{4}-\d\d-\d\d)$/.exec(k); if(m && Date.parse(m[1])<cut) localStorage.removeItem(k); } }catch{}
+try{ const cut=Date.now()-120*864e5; for(let i=localStorage.length-1;i>=0;i--){ const k=localStorage.key(i); const m=k&&/^agt:d:[A-P]x?:(\d{4}-\d\d-\d\d)$/.exec(k); if(m && Date.parse(m[1])<cut) localStorage.removeItem(k); } }catch{}
 
 // ---- data
 async function getJSON(url){ const r = await fetch(url); if(!r.ok) throw new Error(`${r.status} ${url}`); return r.json(); }
 async function getAll(url){ let out=[]; while(url){ const d=await getJSON(url); out=out.concat(d.results||[]); url=d.next; } return out; }
 // Same discovery approach as agile-compare: live product by display name, never a hardcoded version.
 async function findTariff(){
-  if (state.tariff && state.tariffRegion===state.region) return state.tariff;
-  const ct = LS.get('tar:'+state.region);
-  if (ct && Date.now()-ct.t < 24*3600e3){ state.tariffRegion = state.region; return state.tariff = {product:ct.product, code:ct.code}; }
+  const x = EXP();
+  if (state.tariff && state.tariffRegion===state.region && state.tariffMode===state.mode) return state.tariff;
+  const tk = 'tar:' + (x ? 'x:' : '') + state.region, ct = LS.get(tk);
+  if (ct && Date.now()-ct.t < 24*3600e3){ state.tariffRegion = state.region; state.tariffMode = state.mode; return state.tariff = {product:ct.product, code:ct.code}; }
   const products = await getAll(`${BASE}/products/?brand=OCTOPUS_ENERGY&is_variable=true&page_size=100`);
-  const c = products.filter(p => p.display_name==='Agile Octopus' && !p.is_business && !p.is_prepay);
-  if(!c.length) throw new Error('Could not find the live Agile Octopus product');
+  const c = x ? products.filter(p => p.direction==='EXPORT' && p.display_name==='Agile Outgoing Octopus' && !p.is_business)
+              : products.filter(p => p.display_name==='Agile Octopus' && !p.is_business && !p.is_prepay);
+  if(!c.length) throw new Error(x ? 'Could not find the live Agile Outgoing Octopus product' : 'Could not find the live Agile Octopus product');
   const prod = (c.find(p=>!p.available_to) || c[0]).code;
   const detail = await getJSON(`${BASE}/products/${prod}/`);
   const rt = (detail.single_register_electricity_tariffs||{})['_'+state.region];
   const t = rt && (rt.direct_debit_monthly || Object.values(rt)[0]);
-  if(!t) throw new Error(`No Agile tariff for region ${state.region}`);
-  state.tariffRegion = state.region;
-  LS.set('tar:'+state.region, {t:Date.now(), product:prod, code:t.code});
+  if(!t) throw new Error(`No ${x ? 'Agile Outgoing' : 'Agile'} tariff for region ${state.region}`);
+  state.tariffRegion = state.region; state.tariffMode = state.mode;
+  LS.set(tk, {t:Date.now(), product:prod, code:t.code});
   return state.tariff = {product:prod, code:t.code};
 }
 function demoSlots(start, k){
   const out=[]; for(let i=0;i<48;i++){
     const h=i/2, base=18+k+8*Math.sin((h-4)/24*Math.PI*2)+(h>=16&&h<19?18:0)+(h<5?-22:0)+Math.sin(i*1.7+k)*2;
-    out.push({from:new Date(start.getTime()+i*1800e3), to:new Date(start.getTime()+(i+1)*1800e3), p:+base.toFixed(2)});
+    out.push({from:new Date(start.getTime()+i*1800e3), to:new Date(start.getTime()+(i+1)*1800e3), p:+(EXP() ? (base-(h>=16&&h<19?18:0))*0.55 : base).toFixed(2)});
   } return out;
 }
 async function fetchRates(a,b){
@@ -362,15 +393,24 @@ async function ensureDays(starts){
     const c=dayFromCache(s); if(c) state.days.set(k,c); else need.push(s); }
   if(!need.length) return;
   need.sort((x,y)=>x-y);
-  const region=state.region, rows = await fetchRates(need[0], nextDay(need[need.length-1]));
-  if (region!==state.region) return;
+  const region=state.region, mode=state.mode, rows = await fetchRates(need[0], nextDay(need[need.length-1]));
+  if (region!==state.region || mode!==state.mode) return;
   for (const s of need){ const e=nextDay(s), sl=rows.filter(r=>r.from>=s && r.from<e); state.days.set(dayKey(s), sl); if(!DEMO) dayToCache(s, sl); }
 }
-function fcSlots(start){ // half-hour Agile forecast for a future day in this region
-  const fc=state.fc; if(!fc || !fc.regions[state.region] || !fc._by) return [];
+// the regional formula for the current view: import = Agile Octopus, export = Agile Outgoing (no peak charge, no VAT)
+function fcR(){ const f=state.fc; if(!f) return null; return (EXP() ? (f.export && f.export[state.region]) : f.regions[state.region]) || null; }
+function fcP(R, ms, w){
+  let v = R.m*w/10 + (R.adder||0)*isPeakMs(ms) + R.c;
+  const cap = R.cap===undefined ? (EXP() ? null : 100) : R.cap;
+  if (cap!=null) v = Math.min(cap, v);
+  if (R.floor!=null) v = Math.max(R.floor, v);
+  return v;
+}
+function fcSlots(start){ // half-hour forecast for a future day in this region
+  const fc=state.fc, R=fcR(); if(!fc || !R || !fc._by) return [];
   const sl=fc._by.get(dayKey(start)); if(!sl || sl.length<20) return [];
-  const R=fc.regions[state.region], out=[];
-  for(const [ms,w] of sl) for(const off of [0,1800e3]){ const t=ms+off; out.push({from:new Date(t), to:new Date(t+1800e3), p:Math.min(R.cap||100, R.m*w/10 + R.adder*isPeakMs(t) + R.c)}); }
+  const out=[];
+  for(const [ms,w] of sl) for(const off of [0,1800e3]){ const t=ms+off; out.push({from:new Date(t), to:new Date(t+1800e3), p:fcP(R,t,w)}); }
   return out;
 }
 function applyViewState(){
@@ -423,18 +463,18 @@ function render(){
       const b = band(S[i].p); hero.style.setProperty('--band', `var(${b[1]})`);
       $('status').textContent = b[2];
       $('now').textContent = (S[i].p<0?'−':'') + Math.abs(S[i].p).toFixed(2);
-      $('nowslot').innerHTML = `<b>${fmtTime.format(S[i].from)}–${fmtTime.format(S[i].to)}</b> · inc. VAT`;
+      $('nowslot').innerHTML = `<b>${fmtTime.format(S[i].from)}–${fmtTime.format(S[i].to)}</b> · ${EXP()?'export rate, no VAT':'inc. VAT'}`;
     } else { $('now').textContent='–'; $('status').textContent='No current slot'; }
   } else { $('now').textContent='–'; $('status').textContent='No prices yet'; }
   // viewed day
   const V = state.slots;
   $('daytitle').textContent = dayLabel(state.view);
   { const fd = state.slotsFc && state.fc && state.fc.days.find(x=>x.date===dayKey(state.view)), e = fd && fcErr(fd.h);
-    $('daysub').textContent = (dayLabel(state.view).length>9 ? '' : fmtDay.format(state.view) + ' · ') + 'p/kWh inc. VAT' + (state.slotsFc ? ` · forecast${e?`, typically ±${Math.round(e.pct)}% on the day's average`:''}` : ''); }
+    $('daysub').textContent = (dayLabel(state.view).length>9 ? '' : fmtDay.format(state.view) + ' · ') + (EXP()?'export rate, p/kWh, no VAT':'p/kWh inc. VAT') + (state.slotsFc ? ` · forecast${e?`, typically ±${Math.round(e.pct)}% on the day's average`:''}` : ''); }
   const isToday = dayKey(state.view)===dayKey(state.todayStart);
   $('todaybtn').disabled = isToday; $('nextd').disabled = !state.hasNext;
   $('nextd').title = state.hasNext ? 'Next day (→)' : (state.fc ? 'That is the end of the forecast' : 'Tomorrow\'s prices aren\'t published yet (usually ~4pm)');
-  document.title = (S.length && i>=0) ? `${pr(S[i].p)} now · Agile Tracker` : 'Agile Tracker – Live Octopus Agile prices today (p/kWh)';
+  document.title = (S.length && i>=0) ? `${pr(S[i].p)} ${EXP()?'export ':''}now · Agile Tracker` : 'Agile Tracker – Live Octopus Agile prices today (p/kWh)';
   drawAll(); renderWhy();
 }
 function drawAll(){ drawChart(); drawMonth(); }
@@ -512,18 +552,18 @@ function demoForecast(){
   for(let d=1; d<=14; d++){ const st=new Date(t0.getTime()+d*86400e3+6*3600e3); const base=140+Math.sin(d/2.2)*35+(d>8?25:0);
     days.push({date:dayKey(st),h:d,mean:base,p10:base-15-d,p90:base+15+d,published:false});
     for(let h=0;h<24;h++){ hours.push(new Date(ukDayStart(st).getTime()+h*3600e3).toISOString()); p50.push(base+(h>=16&&h<20?35:h<6?-30:0)); } }
-  const regions={}; for(const r of 'ABCDEFGHJKLMNP') regions[r]={m:1.19,adder:12.3,c:3.2,cap:100};
-  return {issue_date:dayKey(t0),generated:new Date().toISOString(),status:'ok',notes:[],days,wholesale:{hours_utc:hours,p50},regions,
+  const regions={}, exp={}; for(const r of 'ABCDEFGHJKLMNP'){ regions[r]={m:1.19,adder:12.3,c:3.2,cap:100}; exp[r]={m:.97,adder:0,c:.4,cap:null,floor:null}; }
+  return {issue_date:dayKey(t0),generated:new Date().toISOString(),status:'ok',notes:[],days,wholesale:{hours_utc:hours,p50},regions,export:exp,
     accuracy:{backtest:[1,7,14].map(h=>({h,daily_mae_pct:12+h*.5,trend_hit_pct:90-h}),),logged:[]}};
 }
 const isPeakMs = ms => { const h=+parts(new Date(ms)).hour % 24; return h>=16 && h<19 ? 1 : 0; };
 function fcAgile(f, deltaWholesale){ // average Agile p/kWh for one forecast day in this region
-  const R=state.fc.regions[state.region]; if(!R||!f.slots) return null; let sum=0,n=0;
-  for(const [ms,w] of f.slots) for(const off of [0,1800e3]){ const t=ms+off; sum+=Math.min(R.cap||100, R.m*(w+deltaWholesale)/10 + R.adder*isPeakMs(t) + R.c); n++; }
+  const R=fcR(); if(!R||!f.slots) return null; let sum=0,n=0;
+  for(const [ms,w] of f.slots) for(const off of [0,1800e3]){ const t=ms+off; sum+=fcP(R,t,w+deltaWholesale); n++; }
   return n? sum/n : null;
 }
 function forecastDays(lastActualStart){
-  const fc=state.fc; if(!fc || !fc.regions[state.region]) return [];
+  const fc=state.fc; if(!fc || !fcR()) return [];
   const lastKey=dayKey(lastActualStart), out=[];
   for(const d of fc.days){
     if(d.date<=lastKey) continue;
@@ -560,12 +600,13 @@ function renderOutlook(days, hist){
   let turn=null; for(let i=0;i<all.length-2;i++){ const dev=all.slice(i,i+3).map(d=>pc(d.avg)); if(dev.every(x=>x>10)||dev.every(x=>x<-10)){ turn={d:all[i].start,up:dev[0]>0}; break; } }
   const cheap=all.reduce((a,b)=>b.avg<a.avg?b:a), dear=all.reduce((a,b)=>b.avg>a.avg?b:a);
   state.outlookLine = (lp>7 ? `Next two weeks: prices look set to rise, about ${Math.round(lp)}% above last week` : lp<-7 ? `Next two weeks: prices look set to fall, about ${Math.round(-lp)}% below last week` : 'Next two weeks: no clear rise or fall expected')
-    + (turn ? `, shifting from ${fmtDay.format(turn.d)}` : '') + ` (forecast, region ${state.region})`;
+    + (turn ? `, shifting from ${fmtDay.format(turn.d)}` : '') + ` (forecast${EXP()?', export':''}, region ${state.region})`;
   const e1=fcErr(1), e14=fcErr(14), fx=state.fc;
   const upd=fx.generated?new Intl.DateTimeFormat('en-GB',{timeZone:TZ,weekday:'short',hour:'2-digit',minute:'2-digit'}).format(new Date(fx.generated)):'';
   const stale = fx.generated && Date.now()-Date.parse(fx.generated) > 36*3600e3;
   el.innerHTML = `<span class="oh">${label}: about ${pr(lead)} a day vs ${pr(base)} over the last week${lp>7||lp<-7?` (${lp>0?'+':'−'}${Math.abs(lp).toFixed(0)}%)`:''}${turn?`, shifting from <b>${fmtDay.format(turn.d)}</b>`:''}.</span>`
-   + `Cheapest day ahead: <b>${fmtDay.format(cheap.start)}</b> (${pr(cheap.avg)}) · dearest: <b>${fmtDay.format(dear.start)}</b> (${pr(dear.avg)}) · for region ${state.region}, inc. VAT.<br>`
+   + (EXP() ? `Best export day ahead: <b>${fmtDay.format(dear.start)}</b> (${pr(dear.avg)}) · weakest: <b>${fmtDay.format(cheap.start)}</b> (${pr(cheap.avg)}) · Agile Outgoing, region ${state.region}, no VAT.<br>`
+            : `Cheapest day ahead: <b>${fmtDay.format(cheap.start)}</b> (${pr(cheap.avg)}) · dearest: <b>${fmtDay.format(dear.start)}</b> (${pr(dear.avg)}) · for region ${state.region}, inc. VAT.<br>`)
    + `Estimate from a model of the wholesale market (wind, demand, gas, season)${e1&&e14?`; typical daily error ${Math.round(e1.pct)}% next day, ${Math.round(e14.pct)}% by day 14${e14.src==='backtest'?' (from past data)':''}`:''}. Not a guarantee${upd?` · updated ${upd}`:''}.`
    + (fx.status==='degraded'||stale?`<br><span class="warn">⚠ ${stale?'Forecast is out of date.':'Running in reduced-accuracy mode.'}</span>`:'');
 }
@@ -693,7 +734,7 @@ async function tariffRates(name, dayStart, slots){
 }
 async function loadOverlay(){
   const note=$('cmpnote'); note.textContent='';
-  if (cmpName==='none' || !state.slots.length){ state.overlay=null; drawChart(); return; }
+  if (EXP() || cmpName==='none' || !state.slots.length){ state.overlay=null; drawChart(); return; }   // the comparison tariffs are import tariffs
   const tok = state.ovTok = {}, name=cmpName, view=state.view, slots=state.slots;
   state.overlay=null; drawChart();
   try{
@@ -738,8 +779,9 @@ function explain(){ // day-level: why is *today* cheap / pricey / average?
   const ctx=state.ctx||{}, r=Math.round, ps=S.map(s=>s.p), avg=mean(ps), hh=d=>fmtTime.format(d);
   const t0=S[0].from.getTime(), t1=S[S.length-1].to.getTime();
   const past=histDays().filter(d=>d.n && dayKey(d.start)!==dayKey(state.todayStart)), avg30=past.length>=7?mean(past.map(d=>d.avg)):null;
-  const dir = avg30!==null ? (avg-avg30 < -0.08*Math.abs(avg30) ? -1 : avg-avg30 > 0.08*Math.abs(avg30) ? 1 : 0) : (avg<15?-1:avg<25?0:1);
-  const rel = avg30!==null ? ['cheaper than usual','about average','pricier than usual'][dir+1] : ['cheap','about average','pricey'][dir+1];
+  const dir = avg30!==null ? (avg-avg30 < -0.08*Math.abs(avg30) ? -1 : avg-avg30 > 0.08*Math.abs(avg30) ? 1 : 0) : (EXP() ? (avg<10?-1:avg<20?0:1) : (avg<15?-1:avg<25?0:1));
+  const rel = EXP() ? (avg30!==null ? ['lower than usual','about average','higher than usual'][dir+1] : ['low','about average','high'][dir+1])
+    : (avg30!==null ? ['cheaper than usual','about average','pricier than usual'][dir+1] : ['cheap','about average','pricey'][dir+1]);
   const F=[];
   // generation mix so far today (national)
   const mix=(ctx.mix||[]).filter(x=>x.f>=t0 && x.f<t1);
@@ -773,11 +815,14 @@ function explain(){ // day-level: why is *today* cheap / pricey / average?
   // shape of the day
   if (S.length>=4){ const W=4; let b=0,ba=Infinity; for(let i=0;i+W<=S.length;i++){ const a=mean(ps.slice(i,i+W)); if(a<ba){ba=a;b=i;} }
     const pk=S[ps.indexOf(Math.max(...ps))], negN=ps.filter(v=>v<0).length;
-    items.push({t:'📈',x:`Cheapest 2 hours: ${hh(S[b].from)}–${hh(S[b+W-1].to)} (avg ${pr(ba)}). Dearest: ${hh(pk.from)} at ${pr(pk.p)}${negN?`. Negative for ${negN/2}h`:''}`}); }
+    if (EXP()){ let eb=0, ea=-Infinity; for(let i=0;i+W<=S.length;i++){ const a=mean(ps.slice(i,i+W)); if(a>ea){ea=a;eb=i;} }
+      const lo=S[ps.indexOf(Math.min(...ps))];
+      items.push({t:'📈',x:`Best 2 hours to export: ${hh(S[eb].from)}–${hh(S[eb+W-1].to)} (avg ${pr(ea)}). Lowest: ${hh(lo.from)} at ${pr(lo.p)}${negN?`. Negative for ${negN/2}h, when exporting costs you`:''}`}); }
+    else items.push({t:'📈',x:`Cheapest 2 hours: ${hh(S[b].from)}–${hh(S[b+W-1].to)} (avg ${pr(ba)}). Dearest: ${hh(pk.from)} at ${pr(pk.p)}${negN?`. Negative for ${negN/2}h`:''}`}); }
   if (state.outlookLine) items.push({t:'🔮',x:state.outlookLine});
   const bits=[`Avg ${pr(avg)}`+(avg30!==null?` vs ${pr(avg30)} 30-day avg`:'')];
   if (tmin!==null) bits.push(trange(tmin,tmax));
-  return {head:`Why today is ${rel}`, items, foot:bits.join(' · '), mix:mixseg};
+  return {head: EXP() ? `Why export rates today are ${rel}` : `Why today is ${rel}`, items, foot:bits.join(' · '), mix:mixseg};
 }
 function renderWhy(){
   const e = explain(), box=$('why');
@@ -790,7 +835,7 @@ function renderWhy(){
     mx.innerHTML = `<div class="mix-c">Generation mix so far today</div><div class="mixbar" role="img" aria-label="Generation mix">${segs.map(m=>`<i style="width:${m[2]}%;background:var(--f-${m[0]})" title="${m[1]} ${Math.round(m[2])}%"></i>`).join('')}</div>`+
       `<div class="mixleg">${segs.filter(m=>m[2]>=3).map(m=>`<span><i style="background:var(--f-${m[0]})"></i>${m[1]} <b>${Math.round(m[2])}%</b></span>`).join('')}</div>`; mx.hidden=false; }
   else { mx.hidden=true; mx.innerHTML=''; }
-  $('whyd').title='Agile price ≈ wholesale × ~2.2, plus ~12p between 16:00 and 19:00 (capped at 100p). Generation mix & carbon intensity: NESO Carbon Intensity API (national). Weather: Open-Meteo (your region). Demand is not measured directly; weekday/weather are used as proxies.';
+  $('whyd').title=(EXP()?'Agile Outgoing ≈ wholesale (no peak charge, no VAT). ':'Agile price ≈ wholesale × ~2.2, plus ~12p between 16:00 and 19:00 (capped at 100p). ')+' Generation mix & carbon intensity: NESO Carbon Intensity API (national). Weather: Open-Meteo (your region). Demand is not measured directly; weekday/weather are used as proxies.';
 }
 
 // ---- navigation
@@ -844,6 +889,7 @@ async function init(){
   }
   load(); loadForecast();
 }
+syncModeUI();
 init();
 })();
 </script>

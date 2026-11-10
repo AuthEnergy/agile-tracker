@@ -313,14 +313,54 @@ def score_logs(logs_dir, px):
     return out
 
 
-def fit_regions(cache, px_all):
-    """Per-region Agile = m*(wholesale/10) + adder*peak + c   (p/kWh inc VAT, cap 100); cached for 7 days."""
-    cp = os.path.join(cache, "regions.json")
-    if os.path.exists(cp) and time.time() - os.path.getmtime(cp) < 7 * 86400:
-        return json.load(open(cp))
-    now = datetime.now(timezone.utc)
-    start = (now - timedelta(days=60)).replace(hour=0, minute=0, second=0, microsecond=0)
-    product = base.find_agile_product()
+def find_export_product():
+    """Live Agile Outgoing product by display name (never a hardcoded version)."""
+    page, best = f"{base.OCTO}/products/?brand=OCTOPUS_ENERGY&is_variable=true&page_size=100", None
+    while page:
+        d = base.get(page)
+        for p in d["results"]:
+            if p.get("direction") == "EXPORT" and p.get("display_name") == "Agile Outgoing Octopus" and not p.get("is_business"):
+                if best is None or (p.get("available_to") is None and best.get("available_to") is not None):
+                    best = p
+        page = d.get("next")
+    if not best:
+        raise RuntimeError("could not find the Agile Outgoing product")
+    return best["code"]
+
+
+def export_rates(product, region, start, end):
+    prod = base.get(f"{base.OCTO}/products/{product}/")
+    rt = prod["single_register_electricity_tariffs"]["_" + region]
+    code = (rt.get("direct_debit_monthly") or next(iter(rt.values())))["code"]
+    q = urllib.parse.urlencode({"period_from": base.iso(start), "period_to": base.iso(end), "page_size": 1500})
+    d = base.get(f"{base.OCTO}/products/{product}/electricity-tariffs/{code}/standard-unit-rates/?{q}")
+    out = {}
+    for r in d["results"]:
+        out[datetime.fromisoformat(r["valid_from"].replace("Z", "+00:00")).astimezone(timezone.utc)] = r["value_inc_vat"]
+    return out
+
+
+def fit_export_one(pairs):
+    """Agile Outgoing = m*(wholesale/10) + c  (no peak charge, no VAT); floor/cap only if the data shows one."""
+    if len(pairs) < 20:
+        return None
+    X = [[w / 10.0, 1.0] for _, _, w in pairs]; Y = [p for _, p, _ in pairs]
+    vals = sorted(Y)
+    cap = vals[-1] if vals[-1] > 50 and vals.count(vals[-1]) >= 5 else None
+    floor = 0.0 if vals[0] == 0 and vals.count(0.0) >= 3 else None
+    keep = [i for i, y in enumerate(Y) if (cap is None or y < cap) and (floor is None or y > floor)]   # clipped slots hide the true value
+    if len(keep) < 20:
+        return None
+    b = base.ols([X[i] for i in keep], [Y[i] for i in keep])
+    if not b:
+        return None
+    res = [Y[i] - (b[0] * X[i][0] + b[1]) for i in keep]
+    return {"m": round(b[0], 5), "adder": 0.0, "c": round(b[1], 4), "cap": cap, "floor": floor,
+            "mae_p": round(sum(abs(r) for r in res) / len(res), 3), "max_p": round(max(abs(r) for r in res), 2), "n": len(res)}
+
+
+def fit_export(px_all, now, start):
+    product = find_export_product()
     da = {}
     for t, p in px_all.items():
         t = t.to_pydatetime()
@@ -328,21 +368,62 @@ def fit_regions(cache, px_all):
         da[t + timedelta(minutes=30)] = p
     out = {}
     for r in REGIONS:
-        rates = {}
-        cur = start
-        while cur < now:                                     # Octopus pages are capped, fetch in 20-day windows
+        rates, cur = {}, start
+        while cur < now:
             nxt = min(cur + timedelta(days=20), now)
-            got, _ = base.agile_rates(product, r, cur, nxt)
-            rates.update(got)
+            rates.update(export_rates(product, r, cur, nxt))
             cur = nxt
-        pairs = sorted((t, v[0], da[t]) for t, v in rates.items() if t in da)
-        f = base.fit(pairs, 0)
+        f = fit_export_one(sorted((t, v, da[t]) for t, v in rates.items() if t in da))
         if f:
-            out[r] = {"m": round(f["m"], 5), "adder": round(f["adder"], 4), "c": round(f["c"], 4), "cap": 100.0,
-                      "mae_p": round(f["mae"], 3), "max_p": round(f["max"], 2), "n": f["n"]}
-    out["_fitted"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+            out[r] = f
     out["_product"] = product
-    atomic_write(cp, json.dumps(out))
+    return out
+
+
+def fit_regions(cache, px_all):
+    """Per-region Agile import = m*(wholesale/10) + adder*peak + c   (p/kWh inc VAT, cap 100) and Agile Outgoing
+    export = m*(wholesale/10) + c (p/kWh, no VAT); cached for 7 days.  Result has an '_export' block."""
+    cp = os.path.join(cache, "regions.json")
+    cached = json.load(open(cp)) if os.path.exists(cp) else None
+    fresh = cached is not None and time.time() - os.path.getmtime(cp) < 7 * 86400
+    if fresh and "_export" in cached:
+        return cached
+    now = datetime.now(timezone.utc)
+    start = (now - timedelta(days=60)).replace(hour=0, minute=0, second=0, microsecond=0)
+    if fresh:                         # import fit is still valid; only the export block is missing
+        out = cached
+    else:
+        product = base.find_agile_product()
+        da = {}
+        for t, p in px_all.items():
+            t = t.to_pydatetime()
+            da[t] = p
+            da[t + timedelta(minutes=30)] = p
+        out = {}
+        for r in REGIONS:
+            rates = {}
+            cur = start
+            while cur < now:                                     # Octopus pages are capped, fetch in 20-day windows
+                nxt = min(cur + timedelta(days=20), now)
+                got, _ = base.agile_rates(product, r, cur, nxt)
+                rates.update(got)
+                cur = nxt
+            pairs = sorted((t, v[0], da[t]) for t, v in rates.items() if t in da)
+            f = base.fit(pairs, 0)
+            if f:
+                out[r] = {"m": round(f["m"], 5), "adder": round(f["adder"], 4), "c": round(f["c"], 4), "cap": 100.0,
+                          "mae_p": round(f["mae"], 3), "max_p": round(f["max"], 2), "n": f["n"]}
+        out["_fitted"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        out["_product"] = product
+    try:
+        out["_export"] = fit_export(px_all, now, start)
+    except Exception as e:  # noqa   export is optional: never lose the import fit because of it
+        note(f"export fit failed ({e})")
+        out["_export"] = {}
+    if out["_export"]:                # cache only a successful export fit, so a failure is retried next run
+        atomic_write(cp, json.dumps(out))
+    elif not fresh:
+        atomic_write(cp, json.dumps({k: v for k, v in out.items() if k != "_export"}))
     return out
 
 
@@ -498,6 +579,8 @@ def main():
         regions = {}
         note(f"region fit failed ({e})")
         status = "degraded"
+    export = dict(regions.pop("_export", None) or {})
+    export_product = export.pop("_product", None)
 
     neso_w = None
     wp = os.path.join(a.cache, "wind_14d_now.csv")
@@ -509,7 +592,7 @@ def main():
     out = {
         "version": VERSION, "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "issue_date": str(D.date()),
         "timezone": "Europe/London", "status": status, "notes": NOTES,
-        "units": {"wholesale": "GBP/MWh (N2EX GB day-ahead, hourly)", "agile": "p/kWh inc VAT"},
+        "units": {"wholesale": "GBP/MWh (N2EX GB day-ahead, hourly)", "agile": "p/kWh inc VAT", "export": "p/kWh (Agile Outgoing, no VAT)"},
         "formula": "agile_p = min(cap, m * wholesale/10 + adder * (16:00<=UK local time<19:00) + c)  per half-hour; wholesale hour applies to both half-hours",
         "inputs": {"n2ex_latest_utc": px.index.max().strftime("%Y-%m-%dT%H:%MZ"), "sap_p_per_kwh": getattr(ctx, "sap_latest", None),
                    "level7_gbp_mwh": round(float(ctx.level7), 1), "train_rows": ntrain, "gate": gate, "flags": flags,
@@ -519,6 +602,7 @@ def main():
         "bands": {str(h): {"hourly_p10": round(-b["hourly"][2], 1), "hourly_p90": round(-b["hourly"][0], 1),
                            "source": b["source"]} for h, b in bands.items()},
         "regions": regions,
+        "export": export, "export_product": export_product,
         "summary": build_summary(days, float(ctx.level7)),
         "accuracy": {"logged": acc, "backtest": backtest_acc,
                      "note": "backtest = walk-forward on past data; days 8-14 are the average of an optimistic and a no-skill weather assumption. 'logged' replaces it as real forecasts accumulate."},
