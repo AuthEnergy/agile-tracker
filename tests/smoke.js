@@ -127,9 +127,18 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
       await page.locator('#chart').scrollIntoViewIfNeeded();
       await page.mouse.click(b.x + b.width * 0.2, b.y + b.height / 2).catch(() => {});
     }
-    const before = await page.evaluate(() => document.documentElement.dataset.eff);
-    await page.click('#theme'); await page.waitForTimeout(200);
-    check(before !== await page.evaluate(() => document.documentElement.dataset.eff), `${sc.name}: theme toggle had no effect`);
+    { // theme cycles System -> Light -> Dark -> System; only Light/Dark are saved
+      const st = () => page.evaluate(() => ({ pref: document.documentElement.dataset.pref, eff: document.documentElement.dataset.eff, theme: document.documentElement.dataset.theme || null, saved: localStorage.getItem('theme') }));
+      const s0 = await st(); check(s0.pref === 'system' && s0.saved === null, `${sc.name}: theme should start on System (${JSON.stringify(s0)})`);
+      await page.click('#theme'); await page.waitForTimeout(150); const s1 = await st();
+      check(s1.pref === 'light' && s1.saved === 'light' && s1.eff === 'light', `${sc.name}: first click should choose Light (${JSON.stringify(s1)})`);
+      await page.click('#theme'); await page.waitForTimeout(150); const s2 = await st();
+      check(s2.pref === 'dark' && s2.saved === 'dark' && s2.eff === 'dark', `${sc.name}: second click should choose Dark (${JSON.stringify(s2)})`);
+      await page.click('#theme'); await page.waitForTimeout(150); const s3 = await st();
+      check(s3.pref === 'system' && s3.saved === null && s3.theme === null && s3.eff === s0.eff, `${sc.name}: third click should return to System, following the device (${JSON.stringify(s3)})`);
+      check(/System/.test(await page.getAttribute('#theme', 'title')), `${sc.name}: theme button should say which mode is active`);
+      await page.click('#theme'); await page.waitForTimeout(150); // leave an explicit choice so the screenshot below covers a forced theme too
+    }
     await page.screenshot({ path: path.join(__dirname, '..', 'test-results', sc.name + '.png'), fullPage: true });
     check(errs.length === 0, `${sc.name}: page/console errors: ${errs.join(' | ')}`);
     if (sc.name === 'desktop-light') { // caching: a reload must paint without calling any API
