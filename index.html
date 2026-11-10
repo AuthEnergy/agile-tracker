@@ -215,7 +215,7 @@ svg text{fill:var(--muted);font-size:11px;font-family:inherit}
     <div class="cmp" id="cmp"><span class="swatch"></span><label for="cmpsel">Compare with</label><select id="cmpsel" class="pill sm"></select><span class="cmpnote" id="cmpnote"></span></div>
     <div class="legend" id="legend">
       <span><i style="background:var(--cheap)"></i>Great</span>
-      <span><i style="background:var(--mid)"></i>Good</span><span><i style="background:var(--high)"></i>Poor</span><span><i style="background:var(--peak)"></i>Avoid</span><span class="rule">ranked against the past week: 20 / 30 / 30 / 20%</span>
+      <span><i style="background:var(--mid)"></i>Good</span><span><i style="background:var(--high)"></i>Poor</span><span><i style="background:var(--peak)"></i>Avoid</span><span class="rule">ranked against the week around this day: 20 / 30 / 30 / 20%</span>
     </div>
   </section>
   <section class="card monthcard">
@@ -281,7 +281,7 @@ function syncModeUI(){
   const x = EXP();
   $('m-imp').setAttribute('aria-pressed', String(!x)); $('m-exp').setAttribute('aria-pressed', String(x));
   fillCmp(); $('cmpnote').textContent = '';
-  $('legend').innerHTML = x ? EXPORT_BANDS.map(b => `<span><i style="background:var(${b[0]})"></i>${b[1].replace(' export rate','')}</span>`).join('') + '<span class="rule">ranked against the past week: 20 / 30 / 30 / 20%</span>' : LEG_IMP;
+  $('legend').innerHTML = x ? EXPORT_BANDS.map(b => `<span><i style="background:var(${b[0]})"></i>${b[1].replace(' export rate','')}</span>`).join('') + '<span class="rule">ranked against the week around this day: 20 / 30 / 30 / 20%</span>' : LEG_IMP;
   $('chart').setAttribute('aria-label', x ? 'Agile Outgoing export rates' : 'Agile prices');
 }
 function setMode(m){
@@ -324,17 +324,16 @@ const pr = v => (v<0?'−':'') + Math.abs(v).toFixed(2) + 'p';
 const EXP = () => state.mode === 'export';
 const vatTxt = () => EXP() ? 'no VAT' : 'inc. VAT';
 // Bands rank a price against its context: the best 20% are "great", the next 30% "good", the next 30% "poor", the worst 20% "avoid".
-// Import: lowest price is best. Export: highest rate is best. A single day is ranked against the rolling week ending on it;
+// Import: lowest price is best. Export: highest rate is best. A single day is ranked against the week centred on it (3 days before, 3 after);
 // the 30-day chart ranks its daily averages against the whole 30+14-day window.
 const BANDS = [['--cheap','Great price'],['--mid','Good price'],['--high','Poor price'],['--peak','Avoid – high price']];
 const EXPORT_BANDS = [['--cheap','Great export rate'],['--mid','Good export rate'],['--high','Poor export rate'],['--peak','Avoid – low export rate']];
 let RANK = [];                                   // sorted values the current view is ranked against
 const rankSet = vals => { RANK = vals.filter(Number.isFinite).sort((u,v) => u-v); };
-const weekBefore = view => { const o=[]; let d=view; for(let i=0;i<6;i++){ d=prevDay(d); o.push(d); } return o; };
-const weekVals = view => {                       // every half-hour price in the 7 days ending on `view`
-  const out = []; let d = view;
-  for (let i=0;i<7;i++){ daySlots(d).forEach(x => out.push(x.p)); d = prevDay(d); }
-  if (state.slotsFc && view === state.view) state.slots.forEach(x => out.push(x.p));
+const weekDays = view => { const o=[view]; let b=view, f=view; for(let i=0;i<3;i++){ b=prevDay(b); f=nextDay(f); o.unshift(b); o.push(f); } return o; };
+const weekVals = view => {                       // every half-hour price in the 7 days centred on `view` (3 before, 3 after); later days use the forecast
+  const out = [], ts = dayKey(state.todayStart);
+  weekDays(view).forEach(d => { let sl = daySlots(d); if (!sl.length && dayKey(d) > ts) sl = fcSlots(d); sl.forEach(x => out.push(x.p)); });
   return out;
 };
 const band = p => {
@@ -466,7 +465,7 @@ async function load(){
   const apply = applyViewState;
   const prodName = () => DEMO ? 'DEMO' : ((curTariff() || {}).product || '');
   try{
-    await ensureDays([ts, tom, state.view, vn, ...weekBefore(state.view)].filter(d => d <= tom));          // phase 1: just what the first paint needs
+    await ensureDays([ts, tom, state.view, vn, ...weekDays(state.view)].filter(d => d <= tom));          // phase 1: just what the first paint needs
     if (state.loadTok!==tok) return;
     apply(); $('prod').textContent = prodName(); showTariff(); render(); loadOverlay(); loadContext();
     await ensureDays(last30());                           // phase 2: the 30-day strip
