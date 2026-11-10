@@ -319,6 +319,7 @@ function ukDayStart(date){
 }
 const dayKey = d => { const p=parts(d); return `${p.year}-${p.month}-${p.day}`; };
 const nextDay = s => ukDayStart(new Date(s.getTime()+36*3600e3));
+const median = a => { const v=a.filter(Number.isFinite).sort((x,y)=>x-y); return v.length ? (v[(v.length-1)>>1]+v[v.length>>1])/2 : null; };
 const prevDay = s => ukDayStart(new Date(s.getTime()-12*3600e3));
 const daySlots = start => state.days.get(dayKey(start)) || [];
 const pr = v => (v<0?'−':'') + Math.abs(v).toFixed(2) + 'p';
@@ -622,7 +623,7 @@ function forecastDays(lastActualStart){
     const f={slots}, avg=fcAgile(f,0), lo=fcAgile(f,(d.p10??d.mean)-d.mean), hi=fcAgile(f,(d.p90??d.mean)-d.mean);
     if(avg===null) continue;
     out.push({start:ukDayStart(new Date(Date.parse(d.date+'T12:00:00Z'))), n:0, avg:null, min:null, max:null,
-              fc:{avg, lo:Math.min(lo,avg), hi:Math.max(hi,avg), h:d.h, wavg:d.mean}});
+              fc:{avg, med:median(fcSlots(ukDayStart(new Date(Date.parse(d.date+'T12:00:00Z')))).map(x=>x.p)), lo:Math.min(lo,avg), hi:Math.max(hi,avg), h:d.h, wavg:d.mean}});
   }
   return out;
 }
@@ -667,7 +668,7 @@ function last30(){ const out=[]; let d=state.tomorrow ? nextDay(state.todayStart
 function histDays(){
   return last30().map(s=>{
     const d=daySlots(s), ps=d.map(x=>x.p);
-    return {start:s, n:d.length, avg:ps.length?ps.reduce((u,v)=>u+v,0)/ps.length:null, min:ps.length?Math.min(...ps):null, max:ps.length?Math.max(...ps):null};
+    return {start:s, n:d.length, med:median(ps), avg:ps.length?ps.reduce((u,v)=>u+v,0)/ps.length:null, min:ps.length?Math.min(...ps):null, max:ps.length?Math.max(...ps):null};
   });
 }
 function monthDays(){ const h=histDays(); return h.concat(forecastDays(h[h.length-1].start)); }
@@ -681,7 +682,7 @@ function drawMonth(){
   const mfs=state.mfsel && state.mfview===dayKey(state.view) ? state.mfsel : null;
   const days=monthDays(), n=days.length, hist=days.filter(d=>!d.fc), nh=hist.length, hasFc=n>nh;
   const withData=days.filter(d=>d.n), mavg=withData.length?withData.reduce((s,d)=>s+d.avg,0)/withData.length:null;
-  $('monthsub').textContent = mavg===null ? 'No data' : `Daily average · 30-day avg ${pr(mavg)}`;
+  $('monthsub').textContent = mavg===null ? 'No data' : `Daily average · 30-day avg ${pr(mavg)} · colour = daily median`;
   const m={l:2,r:2,t:6,b:18}, iw=W-m.l-m.r, ih=H-m.t-m.b, bw=iw/n;
   const avgs=withData.map(d=>d.avg).concat(days.filter(d=>d.fc).flatMap(d=>[d.fc.hi,d.fc.avg])), lo=Math.min(0,...(avgs.length?avgs:[0])), hi=(Math.max(...(avgs.length?avgs:[1]))*1.08)||1;
   const y=v=>m.t+ih*(1-(v-lo)/(hi-lo));
@@ -690,7 +691,7 @@ function drawMonth(){
     const gp=Math.max(2,bw*0.22), bx=m.l+i*bw+gp/2, w=Math.max(2,bw-gp), r=Math.min(w/2,4);
     const isHov=state.mhover===i, isSel=mfs ? dayKey(d.start)===mfs : dayKey(d.start)===dayKey(state.view), isToday=dayKey(d.start)===dayKey(state.todayStart);
     if(d.fc){
-      const f=d.fc, top=Math.min(y(0),y(f.avg)), h=Math.max(3,Math.abs(y(0)-y(f.avg))), c=colour(f.avg), cx=bx+w/2;
+      const f=d.fc, top=Math.min(y(0),y(f.avg)), h=Math.max(3,Math.abs(y(0)-y(f.avg))), c=colour(f.med ?? f.avg), cx=bx+w/2;
       out+=`<rect x="${bx}" y="${top}" width="${w}" height="${h}" rx="${r}" fill="${c}" fill-opacity="${eff()==='dark'?.38:.4}"/>`;
       out+=`<line x1="${cx}" x2="${cx}" y1="${y(f.hi)}" y2="${y(f.lo)}" stroke="${c}" stroke-width="1.4" stroke-linecap="round" opacity=".9"/>`;
       if(isSel||isHov) out+=`<rect x="${bx-1.5}" y="${Math.min(top,y(f.hi))-1.5}" width="${w+3}" height="${Math.max(h,Math.abs(y(f.lo)-y(f.hi)))+3}" rx="${r+1}" fill="none" stroke="var(--text)" stroke-width="${isHov?2:1.5}" opacity="${isHov&&!isSel?.75:1}"/>`;
@@ -700,7 +701,7 @@ function drawMonth(){
     }
     if(d.n){
       const top=Math.min(y(0),y(d.avg)), h=Math.max(3,Math.abs(y(0)-y(d.avg)));
-      out+=`<rect x="${bx}" y="${top}" width="${w}" height="${h}" rx="${r}" fill="${isToday?'var(--accent)':colour(d.avg)}" opacity="${(isSel||isHov||isToday)?1:(eff()==='dark'?.7:.88)}"/>`;
+      out+=`<rect x="${bx}" y="${top}" width="${w}" height="${h}" rx="${r}" fill="${isToday?'var(--accent)':colour(d.med ?? d.avg)}" opacity="${(isSel||isHov||isToday)?1:(eff()==='dark'?.7:.88)}"/>`;
       if(isSel||isHov) out+=`<rect x="${bx-1.5}" y="${top-1.5}" width="${w+3}" height="${h+3}" rx="${r+1}" fill="none" stroke="var(--text)" stroke-width="${isHov?2:1.5}" ${isHov&&!isSel?'stroke-dasharray="0" opacity=".75"':''}/>`;
     } else out+=`<rect x="${bx}" y="${m.t+ih-3}" width="${w}" height="3" rx="1.5" fill="var(--line)"/>`;
     const ti = days.findIndex(x=>dayKey(x.start)===dayKey(state.todayStart));
