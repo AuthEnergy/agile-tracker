@@ -216,7 +216,7 @@ svg text{fill:var(--muted);font-size:11px;font-family:inherit}
     <div class="legend" id="legend">
       <span><i style="background:var(--cheap)"></i>Negative / cheap</span>
       <span><i style="background:var(--mid)"></i>Average</span><span><i style="background:var(--high)"></i>Pricey</span><span><i style="background:var(--peak)"></i>Peak</span>
-      <span><i style="background:var(--blue)"></i>Blue tip: negative</span>
+      <span><i style="background:var(--blue)"></i>Blue: negative (paid to use)</span>
     </div>
   </section>
   <section class="card monthcard">
@@ -282,7 +282,7 @@ function syncModeUI(){
   const x = EXP();
   $('m-imp').setAttribute('aria-pressed', String(!x)); $('m-exp').setAttribute('aria-pressed', String(x));
   fillCmp(); $('cmpnote').textContent = '';
-  $('legend').innerHTML = x ? EXPORT_BANDS.map(b => `<span><i style="background:var(${b[1]})"></i>${b[2].replace(' right now','').replace(' export rate','')}</span>`).join('') + '<span><i style="background:var(--blue)"></i>Blue tip: excellent</span>' : LEG_IMP;
+  $('legend').innerHTML = x ? EXPORT_BANDS.map(b => `<span><i style="background:var(${b[1]})"></i>${b[2].replace(' right now','').replace(' export rate','')}</span>`).join('') + '<span><i style="background:var(--blue)"></i>Blue: excellent (30p+)</span>' : LEG_IMP;
   $('chart').setAttribute('aria-label', x ? 'Agile Outgoing export rates' : 'Agile prices');
 }
 function setMode(m){
@@ -328,11 +328,11 @@ const BANDS = [[0,'--cheap','Negative – paid to use'],[15,'--cheap','Cheap rig
 // export: colours reversed – a high rate is good for the exporter, negative means exporting costs money
 const EXPORT_BANDS = [[0,'--peak','Negative – exporting costs you'],[10,'--high','Low export rate right now'],[20,'--mid','Average export rate'],[30,'--cheap','Good export rate right now'],[Infinity,'--cheap','Excellent export rate']];
 const band = p => (EXP() ? EXPORT_BANDS : BANDS).find(b => p < b[0]);
-// a blue tip marks the best slots: an excellent export rate (tip at the top of the bar) or a negative import price (tip at the bottom, where the bar hangs below zero)
+// blue marks the best slots: an excellent export rate (the part of the bar above the 30p line) or a negative import price (the whole bar)
 const isTipped = p => EXP() ? p >= 30 : p < 0;
 function tipPath(bx, w, top, h, p, th, op){
   if (!isTipped(p)) return '';
-  th = Math.min(h * 0.6, th); const r = Math.min(w/2, th/2, 6), atTop = p >= 0, ya = atTop ? top : top+h-th, yb = ya+th;
+  th = Math.min(h, th); const r = Math.min(w/2, th/2, 6), atTop = p >= 0, ya = atTop ? top : top+h-th, yb = ya+th;
   const d = atTop ? `M${bx},${yb}V${ya+r}Q${bx},${ya} ${bx+r},${ya}H${bx+w-r}Q${bx+w},${ya} ${bx+w},${ya+r}V${yb}Z`
                   : `M${bx},${ya}V${yb-r}Q${bx},${yb} ${bx+r},${yb}H${bx+w-r}Q${bx+w},${yb} ${bx+w},${yb-r}V${ya}Z`;
   return `<path d="${d}" fill="var(--blue)" fill-opacity="${op}"/>`;
@@ -541,7 +541,7 @@ function drawChart(){
     bars+= state.slotsFc
       ? `<rect x="${bx}" y="${top}" width="${bw}" height="${h}" rx="${Math.min(bw/2,6)}" fill="${colour(s.p)}" fill-opacity="${sel?.6:(dk?.38:.4)}"/>`
       : `<rect x="${bx}" y="${top}" width="${bw}" height="${h}" rx="${Math.min(bw/2,6)}" fill="${colour(s.p)}" opacity="${op}"/>`;
-    bars += tipPath(bx, bw, top, h, s.p, Math.max(10, Math.round(h*0.3)), state.slotsFc ? .6 : .9);
+    bars += tipPath(bx, bw, top, h, s.p, EXP() ? Math.max(2, y(30)-y(s.p)) : h, state.slotsFc ? .6 : .9);
     if(sel) bars+=`<rect x="${bx-1.5}" y="${top-1.5}" width="${bw+3}" height="${h+3}" rx="${Math.min(bw/2,6)+1}" fill="none" stroke="var(--text)" stroke-width="1.5"/>`;
   });
   let nowLine='';
@@ -674,7 +674,7 @@ function drawMonth(){
     if(d.fc){
       const f=d.fc, top=Math.min(y(0),y(f.avg)), h=Math.max(3,Math.abs(y(0)-y(f.avg))), c=colour(f.avg), cx=bx+w/2;
       out+=`<rect x="${bx}" y="${top}" width="${w}" height="${h}" rx="${r}" fill="${c}" fill-opacity="${eff()==='dark'?.38:.4}"/>`;
-      out+=tipPath(bx, w, top, h, f.avg, 8, .6);
+      out+=tipPath(bx, w, top, h, f.avg, EXP() ? Math.max(2, y(30)-y(f.avg)) : h, .6);
       out+=`<line x1="${cx}" x2="${cx}" y1="${y(f.hi)}" y2="${y(f.lo)}" stroke="${c}" stroke-width="1.4" stroke-linecap="round" opacity=".9"/>`;
       if(isSel||isHov) out+=`<rect x="${bx-1.5}" y="${Math.min(top,y(f.hi))-1.5}" width="${w+3}" height="${Math.max(h,Math.abs(y(f.lo)-y(f.hi)))+3}" rx="${r+1}" fill="none" stroke="var(--text)" stroke-width="${isHov?2:1.5}" opacity="${isHov&&!isSel?.75:1}"/>`;
       if(i===nh+7 && (n-1-i)*bw>70) out+=`<text x="${cx}" y="${H-4}" text-anchor="middle">${fmtDM.format(d.start)}</text>`;
@@ -684,7 +684,7 @@ function drawMonth(){
     if(d.n){
       const top=Math.min(y(0),y(d.avg)), h=Math.max(3,Math.abs(y(0)-y(d.avg)));
       out+=`<rect x="${bx}" y="${top}" width="${w}" height="${h}" rx="${r}" fill="${isToday?'var(--accent)':colour(d.avg)}" opacity="${(isSel||isHov||isToday)?1:(eff()==='dark'?.7:.88)}"/>`;
-      out+=tipPath(bx, w, top, h, d.avg, 8, .9);
+      out+=tipPath(bx, w, top, h, d.avg, EXP() ? Math.max(2, y(30)-y(d.avg)) : h, .9);
       if(isSel||isHov) out+=`<rect x="${bx-1.5}" y="${top-1.5}" width="${w+3}" height="${h+3}" rx="${r+1}" fill="none" stroke="var(--text)" stroke-width="${isHov?2:1.5}" ${isHov&&!isSel?'stroke-dasharray="0" opacity=".75"':''}/>`;
     } else out+=`<rect x="${bx}" y="${m.t+ih-3}" width="${w}" height="3" rx="1.5" fill="var(--line)"/>`;
     const ti = days.findIndex(x=>dayKey(x.start)===dayKey(state.todayStart));
