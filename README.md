@@ -33,7 +33,7 @@ Open `index.html`, or serve the folder (`python3 -m http.server`). Add `?demo` t
 
 ## Deploy
 
-Every push to `main` runs `.github/workflows/deploy.yml`, which runs the static checks (`npm test`) and, if they pass, publishes the site to GitHub Pages. The forecast file is produced separately on the VPS (see `server/DEPLOY.md`).
+Every push to `main` runs `.github/workflows/deploy.yml`, which publishes the site to GitHub Pages. Run `npm test` before pushing (the workflow does not run it). The forecast file is produced separately on the VPS (see `server/DEPLOY.md`).
 
 ## SEO and install
 
