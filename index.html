@@ -115,6 +115,7 @@ button.pill svg{width:18px;height:18px}
 .price small{font-size:.26em;font-weight:600;letter-spacing:0;color:var(--muted);margin-left:8px}
 .sub{color:var(--muted);font-size:.92rem}
 .sub b{color:var(--text);font-weight:600}
+.tname{margin-top:5px;font-size:.78rem;color:var(--muted);overflow-wrap:anywhere}
 
 
 .chartcard{padding:18px 14px 14px;position:relative}
@@ -193,6 +194,7 @@ svg text{fill:var(--muted);font-size:11px;font-family:inherit}
         <div class="hero-price">
           <div class="price num"><span id="now">–</span><small>p/kWh</small></div>
           <div class="sub num" id="nowslot">inc. VAT</div>
+          <div class="tname" id="tname"></div>
         </div>
       </div>
       <div class="why" id="why" hidden>
@@ -371,23 +373,29 @@ try{ const cut=Date.now()-120*864e5; for(let i=localStorage.length-1;i>=0;i--){ 
 async function getJSON(url){ const r = await fetch(url); if(!r.ok) throw new Error(`${r.status} ${url}`); return r.json(); }
 async function getAll(url){ let out=[]; while(url){ const d=await getJSON(url); out=out.concat(d.results||[]); url=d.next; } return out; }
 // Same discovery approach as agile-compare: live product by display name, never a hardcoded version.
+const curTariff = () => state.tariff || LS.get('tar:' + (EXP() ? 'x:' : '') + state.region);
+function showTariff(){   // name the tariff in use, at the top of the page
+  const el = $('tname'), t = curTariff();
+  if (DEMO) { el.textContent = 'Demo data, not real prices'; return; }
+  el.textContent = t ? `${t.name || (EXP() ? 'Agile Outgoing Octopus' : 'Agile Octopus')} · ${t.product} · region ${state.region}` : '';
+}
 async function findTariff(){
   const x = EXP();
   if (state.tariff && state.tariffRegion===state.region && state.tariffMode===state.mode) return state.tariff;
   const tk = 'tar:' + (x ? 'x:' : '') + state.region, ct = LS.get(tk);
-  if (ct && Date.now()-ct.t < 24*3600e3){ state.tariffRegion = state.region; state.tariffMode = state.mode; return state.tariff = {product:ct.product, code:ct.code}; }
+  if (ct && Date.now()-ct.t < 24*3600e3){ state.tariffRegion = state.region; state.tariffMode = state.mode; return state.tariff = {product:ct.product, code:ct.code, name:ct.name}; }
   const products = await getAll(`${BASE}/products/?brand=OCTOPUS_ENERGY&is_variable=true&page_size=100`);
   const c = x ? products.filter(p => p.direction==='EXPORT' && p.display_name==='Agile Outgoing Octopus' && !p.is_business)
               : products.filter(p => p.display_name==='Agile Octopus' && !p.is_business && !p.is_prepay);
   if(!c.length) throw new Error(x ? 'Could not find the live Agile Outgoing Octopus product' : 'Could not find the live Agile Octopus product');
-  const prod = (c.find(p=>!p.available_to) || c[0]).code;
+  const pick = c.find(p=>!p.available_to) || c[0], prod = pick.code, pname = pick.full_name || pick.display_name;
   const detail = await getJSON(`${BASE}/products/${prod}/`);
   const rt = (detail.single_register_electricity_tariffs||{})['_'+state.region];
   const t = rt && (rt.direct_debit_monthly || Object.values(rt)[0]);
   if(!t) throw new Error(`No ${x ? 'Agile Outgoing' : 'Agile'} tariff for region ${state.region}`);
   state.tariffRegion = state.region; state.tariffMode = state.mode;
-  LS.set(tk, {t:Date.now(), product:prod, code:t.code});
-  return state.tariff = {product:prod, code:t.code};
+  LS.set(tk, {t:Date.now(), product:prod, code:t.code, name:pname});
+  return state.tariff = {product:prod, code:t.code, name:pname};
 }
 function demoSlots(start, k){
   const out=[]; for(let i=0;i<48;i++){
@@ -441,11 +449,11 @@ async function load(){
   if (!state.view) state.view = ts;
   const tom = nextDay(ts), vn = nextDay(state.view);
   const apply = applyViewState;
-  const prodName = () => DEMO ? 'DEMO' : ((state.tariff || LS.get('tar:'+state.region) || {}).product || '');
+  const prodName = () => DEMO ? 'DEMO' : ((curTariff() || {}).product || '');
   try{
     await ensureDays([ts, tom, state.view, vn].filter(d => d <= tom));          // phase 1: just what the first paint needs
     if (state.loadTok!==tok) return;
-    apply(); $('prod').textContent = prodName(); render(); loadOverlay(); loadContext();
+    apply(); $('prod').textContent = prodName(); showTariff(); render(); loadOverlay(); loadContext();
     await ensureDays(last30());                           // phase 2: the 30-day strip
     if (state.loadTok!==tok) return;
     apply(); drawMonth(); renderWhy();                    // renderWhy picks up the outlook line once the 30-day strip is known
