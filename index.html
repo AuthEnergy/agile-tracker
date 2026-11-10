@@ -133,6 +133,13 @@ button.pill.sm.txt{width:auto;padding:0 12px;font-size:.82rem;font-weight:600}
 .charthead span.sm{font-weight:500}
 .monthcard{padding:16px 14px 14px}
 #month{display:block;width:100%;height:110px;cursor:pointer;touch-action:pan-y;user-select:none;-webkit-user-select:none}
+.outlook{margin:10px 6px 0;padding:10px 12px;border-radius:14px;background:var(--bg);border:1px solid var(--line);font-size:.82rem;line-height:1.4;color:var(--muted)}
+.outlook b{color:var(--text);font-weight:650}
+.outlook .oh{display:block;color:var(--text);font-size:.9rem;font-weight:650;margin-bottom:2px}
+.outlook .warn{color:var(--peak)}
+.mlegend{display:flex;flex-wrap:wrap;gap:4px 14px;padding:8px 6px 0;color:var(--muted);font-size:.72rem}
+.mlegend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.mlegend i.f{border:1.5px dashed var(--muted);background:transparent}
 .mread{padding:8px 6px 0;color:var(--muted);font-size:.8rem;min-height:1.9em}
 .mread b{color:var(--text);font-weight:650}
 .cmp{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 6px 0;font-size:.8rem;color:var(--muted)}
@@ -207,6 +214,8 @@ svg text{fill:var(--muted);font-size:11px;font-family:inherit}
       </div>
     <svg id="month" role="img" aria-label="Daily average prices, last 30 days"></svg>
     <div class="mread" id="mread"></div>
+    <div class="mlegend" id="mlegend" hidden><span><i style="background:var(--mid)"></i>Actual</span><span><i class="f"></i>Forecast (dotted, line = likely range)</span></div>
+    <div class="outlook" id="outlook" hidden></div>
   </section>
   <section class="card about" aria-labelledby="about-h">
     <h2 id="about-h">About Agile Tracker</h2>
@@ -374,7 +383,7 @@ async function load(){
     if (state.loadTok===tok && !state.today.length && !state.slots.length){ $('err').textContent = 'Could not load prices: ' + e.message; $('err').style.display='block'; render(); }
   }
 }
-function refresh(){ // re-check days that are still incomplete (e.g. tomorrow before ~4pm)
+function refresh(){ loadForecast(); // re-check days that are still incomplete (e.g. tomorrow before ~4pm)
   const tk = dayKey(new Date());
   for (const [k,v] of [...state.days]) if (k>=tk && v.length<46) state.days.delete(k);
   load();
@@ -460,29 +469,118 @@ function drawChart(){
   svg._geom = {m,iw,t0,t1,W,H,x};
 }
 
+// ---- 14-day outlook (national wholesale forecast from far.cx + this region's Agile formula, all in the browser)
+const FC_URL = 'https://far.cx/uk-forecast.json';
+state.fc = null;
+async function loadForecast(){
+  try{
+    let j;
+    if (DEMO) j = demoForecast();
+    else { const c=new AbortController(), id=setTimeout(()=>c.abort(),8000);
+      try{ const r=await fetch(FC_URL,{signal:c.signal}); if(!r.ok) throw new Error(r.status); j=await r.json(); } finally{ clearTimeout(id); } }
+    if (!j || !j.wholesale || !Array.isArray(j.wholesale.p50) || !j.regions || !Array.isArray(j.days)) throw new Error('bad forecast file');
+    const by = new Map();
+    j.wholesale.hours_utc.forEach((t,i)=>{ const ms=Date.parse(t); const k=dayKey(new Date(ms)); if(!by.has(k)) by.set(k,[]); by.get(k).push([ms, j.wholesale.p50[i]]); });
+    j._by = by; state.fc = j;
+  }catch(e){ console.warn('forecast unavailable', e); state.fc = null; }
+  drawMonth();
+}
+function demoForecast(){
+  const t0=ukDayStart(new Date()), hours=[], p50=[], days=[];
+  for(let d=1; d<=14; d++){ const st=new Date(t0.getTime()+d*86400e3+6*3600e3); const base=140+Math.sin(d/2.2)*35+(d>8?25:0);
+    days.push({date:dayKey(st),h:d,mean:base,p10:base-15-d,p90:base+15+d,published:false});
+    for(let h=0;h<24;h++){ hours.push(new Date(ukDayStart(st).getTime()+h*3600e3).toISOString()); p50.push(base+(h>=16&&h<20?35:h<6?-30:0)); } }
+  const regions={}; for(const r of 'ABCDEFGHJKLMNP') regions[r]={m:1.19,adder:12.3,c:3.2,cap:100};
+  return {issue_date:dayKey(t0),generated:new Date().toISOString(),status:'ok',notes:[],days,wholesale:{hours_utc:hours,p50},regions,
+    accuracy:{backtest:[1,7,14].map(h=>({h,daily_mae_pct:12+h*.5,trend_hit_pct:90-h}),),logged:[]}};
+}
+const isPeakMs = ms => { const h=+parts(new Date(ms)).hour % 24; return h>=16 && h<19 ? 1 : 0; };
+function fcAgile(f, deltaWholesale){ // average Agile p/kWh for one forecast day in this region
+  const R=state.fc.regions[state.region]; if(!R||!f.slots) return null; let sum=0,n=0;
+  for(const [ms,w] of f.slots) for(const off of [0,1800e3]){ const t=ms+off; sum+=Math.min(R.cap||100, R.m*(w+deltaWholesale)/10 + R.adder*isPeakMs(t) + R.c); n++; }
+  return n? sum/n : null;
+}
+function forecastDays(lastActualStart){
+  const fc=state.fc; if(!fc || !fc.regions[state.region]) return [];
+  const lastKey=dayKey(lastActualStart), out=[];
+  for(const d of fc.days){
+    if(d.date<=lastKey) continue;
+    const slots=fc._by.get(d.date); if(!slots || slots.length<20) continue;
+    const f={slots}, avg=fcAgile(f,0), lo=fcAgile(f,(d.p10??d.mean)-d.mean), hi=fcAgile(f,(d.p90??d.mean)-d.mean);
+    if(avg===null) continue;
+    out.push({start:ukDayStart(new Date(Date.parse(d.date+'T12:00:00Z'))), n:0, avg:null, min:null, max:null,
+              fc:{avg, lo:Math.min(lo,avg), hi:Math.max(hi,avg), h:d.h, wavg:d.mean}});
+  }
+  return out;
+}
+function fcErr(h){ // typical daily error (%) at horizon h: measured once logged, else backtest
+  const a=state.fc&&state.fc.accuracy; if(!a) return null;
+  const L=(a.logged||[]).find(x=>x.h===h), B=(a.backtest||[]).find(x=>x.h===h);
+  if(L) return {pct:L.daily_mae_pct, src:'measured'};
+  if(B) return {pct:B.daily_mae_pct, src:'backtest'};
+  const bs=(a.backtest||[]).slice().sort((x,y)=>x.h-y.h); if(!bs.length) return null;
+  const lo=[...bs].reverse().find(x=>x.h<=h)||bs[0], hi=bs.find(x=>x.h>=h)||bs[bs.length-1];
+  const t=hi.h===lo.h?0:(h-lo.h)/(hi.h-lo.h); return {pct:lo.daily_mae_pct+(hi.daily_mae_pct-lo.daily_mae_pct)*t, src:'backtest'};
+}
+function renderOutlook(days, hist){
+  const el=$('outlook'), fcd=days.filter(d=>d.fc);
+  if(!fcd.length){ el.hidden=true; $('mlegend').hidden=true; return; }
+  el.hidden=false; $('mlegend').hidden=false;
+  const past=hist.filter(d=>d.n).slice(-7); if(past.length<4){ el.hidden=true; return; }
+  const base=mean(past.map(d=>d.avg));
+  const tomorrow=hist.find(d=>d.n && dayKey(d.start)===dayKey(nextDay(state.todayStart)));
+  const up=[...(tomorrow?[tomorrow.avg]:[]), ...fcd.map(d=>d.fc.avg)].slice(0,14);
+  const w1=mean(up.slice(0,7)), w2=up.length>7?mean(up.slice(7)):null, pc=v=>100*(v/base-1);
+  const lead = w2===null ? w1 : w2, lp=pc(lead);
+  const label=(lp>7?`Prices look set to <b>rise</b>`:lp<-7?`Prices look set to <b>fall</b>`:`<b>No clear rise or fall</b> expected`);
+  const all=[...(tomorrow?[tomorrow]:[]), ...fcd.map(d=>({start:d.start,avg:d.fc.avg}))];
+  let turn=null; for(let i=0;i<all.length-2;i++){ const dev=all.slice(i,i+3).map(d=>pc(d.avg)); if(dev.every(x=>x>10)||dev.every(x=>x<-10)){ turn={d:all[i].start,up:dev[0]>0}; break; } }
+  const cheap=all.reduce((a,b)=>b.avg<a.avg?b:a), dear=all.reduce((a,b)=>b.avg>a.avg?b:a);
+  const e1=fcErr(1), e14=fcErr(14), fx=state.fc;
+  const upd=fx.generated?new Intl.DateTimeFormat('en-GB',{timeZone:TZ,weekday:'short',hour:'2-digit',minute:'2-digit'}).format(new Date(fx.generated)):'';
+  const stale = fx.generated && Date.now()-Date.parse(fx.generated) > 36*3600e3;
+  el.innerHTML = `<span class="oh">${label}: about ${pr(lead)} a day vs ${pr(base)} over the last week${lp>7||lp<-7?` (${lp>0?'+':'−'}${Math.abs(lp).toFixed(0)}%)`:''}${turn?`, shifting from <b>${fmtDay.format(turn.d)}</b>`:''}.</span>`
+   + `Cheapest day ahead: <b>${fmtDay.format(cheap.start)}</b> (${pr(cheap.avg)}) · dearest: <b>${fmtDay.format(dear.start)}</b> (${pr(dear.avg)}) · for region ${state.region}, inc. VAT.<br>`
+   + `Estimate from a model of the wholesale market (wind, demand, gas, season)${e1&&e14?`; typical daily error ${Math.round(e1.pct)}% next day, ${Math.round(e14.pct)}% by day 14${e14.src==='backtest'?' (from past data)':''}`:''}. Not a guarantee${upd?` · updated ${upd}`:''}.`
+   + (fx.status==='degraded'||stale?`<br><span class="warn">⚠ ${stale?'Forecast is out of date.':'Running in reduced-accuracy mode.'}</span>`:'');
+}
+
 // ---- month view
 function last30(){ const out=[]; let d=state.tomorrow ? nextDay(state.todayStart) : state.todayStart; for(let i=0;i<30;i++){ out.unshift(d); d=prevDay(d); } return out; }
-function monthDays(){
+function histDays(){
   return last30().map(s=>{
     const d=daySlots(s), ps=d.map(x=>x.p);
     return {start:s, n:d.length, avg:ps.length?ps.reduce((u,v)=>u+v,0)/ps.length:null, min:ps.length?Math.min(...ps):null, max:ps.length?Math.max(...ps):null};
   });
 }
-const daySummary = d => d.n ? `<b>${fmtDay.format(d.start)}</b> · avg ${pr(d.avg)} · low ${pr(d.min)} · high ${pr(d.max)}` : `<b>${fmtDay.format(d.start)}</b> · no data`;
+function monthDays(){ const h=histDays(); return h.concat(forecastDays(h[h.length-1].start)); }
+const daySummary = d => d.fc ? (()=>{ const e=fcErr(d.fc.h);
+  return `<b>${fmtDay.format(d.start)}</b> · <b>forecast</b> avg ~${pr(d.fc.avg)} (likely ${d.fc.lo.toFixed(1)}–${d.fc.hi.toFixed(1)}p)${e?` · typically ±${Math.round(e.pct)}%`:''} · half-hour detail not forecast`; })()
+  : d.n ? `<b>${fmtDay.format(d.start)}</b> · avg ${pr(d.avg)} · low ${pr(d.min)} · high ${pr(d.max)}` : `<b>${fmtDay.format(d.start)}</b> · no data`;
 function drawMonth(){
   if(!state.todayStart || !state.view) return;
   const svg=$('month'), W=svg.clientWidth||600, H=svg.clientHeight||110;
   svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-  const days=monthDays(), n=days.length;
+  const mfs=state.mfsel && state.mfview===dayKey(state.view) ? state.mfsel : null;
+  const days=monthDays(), n=days.length, hist=days.filter(d=>!d.fc), nh=hist.length, hasFc=n>nh;
   const withData=days.filter(d=>d.n), mavg=withData.length?withData.reduce((s,d)=>s+d.avg,0)/withData.length:null;
   $('monthsub').textContent = mavg===null ? 'No data' : `Daily average · 30-day avg ${pr(mavg)}`;
   const m={l:2,r:2,t:6,b:18}, iw=W-m.l-m.r, ih=H-m.t-m.b, bw=iw/n;
-  const avgs=withData.map(d=>d.avg), lo=Math.min(0,...(avgs.length?avgs:[0])), hi=(Math.max(...(avgs.length?avgs:[1]))*1.08)||1;
+  const avgs=withData.map(d=>d.avg).concat(days.filter(d=>d.fc).flatMap(d=>[d.fc.hi,d.fc.avg])), lo=Math.min(0,...(avgs.length?avgs:[0])), hi=(Math.max(...(avgs.length?avgs:[1]))*1.08)||1;
   const y=v=>m.t+ih*(1-(v-lo)/(hi-lo));
   let out='';
   days.forEach((d,i)=>{
     const gp=Math.max(2,bw*0.22), bx=m.l+i*bw+gp/2, w=Math.max(2,bw-gp), r=Math.min(w/2,4);
-    const isHov=state.mhover===i, isSel=dayKey(d.start)===dayKey(state.view), isToday=dayKey(d.start)===dayKey(state.todayStart);
+    const isHov=state.mhover===i, isSel=mfs ? dayKey(d.start)===mfs : dayKey(d.start)===dayKey(state.view), isToday=dayKey(d.start)===dayKey(state.todayStart);
+    if(d.fc){
+      const f=d.fc, top=Math.min(y(0),y(f.avg)), h=Math.max(3,Math.abs(y(0)-y(f.avg))), c=colour(f.avg), cx=bx+w/2;
+      out+=`<rect x="${bx}" y="${top}" width="${w}" height="${h}" rx="${r}" fill="${c}" fill-opacity="${eff()==='dark'?.22:.28}" stroke="${c}" stroke-width="1.4" stroke-dasharray="2.5 2.5"/>`;
+      out+=`<line x1="${cx}" x2="${cx}" y1="${y(f.hi)}" y2="${y(f.lo)}" stroke="${c}" stroke-width="1.4" stroke-linecap="round" opacity=".9"/>`;
+      if(isSel||isHov) out+=`<rect x="${bx-1.5}" y="${Math.min(top,y(f.hi))-1.5}" width="${w+3}" height="${Math.max(h,Math.abs(y(f.lo)-y(f.hi)))+3}" rx="${r+1}" fill="none" stroke="var(--text)" stroke-width="${isHov?2:1.5}" stroke-dasharray="3 2.5" opacity="${isHov&&!isSel?.75:1}"/>`;
+      if(i===nh+7 && (n-1-i)*bw>70) out+=`<text x="${cx}" y="${H-4}" text-anchor="middle">${fmtDM.format(d.start)}</text>`;
+      else if(i===n-1) out+=`<text x="${bx+w}" y="${H-4}" text-anchor="end">${fmtDM.format(d.start)}</text>`;
+      return;
+    }
     if(d.n){
       const top=Math.min(y(0),y(d.avg)), h=Math.max(3,Math.abs(y(0)-y(d.avg)));
       out+=`<rect x="${bx}" y="${top}" width="${w}" height="${h}" rx="${r}" fill="${colour(d.avg)}" opacity="${(isSel||isHov)?1:(eff()==='dark'?.7:.88)}"/>`;
@@ -492,8 +590,12 @@ function drawMonth(){
     if(dayKey(d.start)===dayKey(state.todayStart)) out+=`<text x="${bx+w}" y="${H-4}" text-anchor="end" style="fill:var(--accent);font-weight:700">Today</text>`;
     else if(i===0 || (i%7===0 && Math.abs(i-ti)>4)) out+=`<text x="${i===0?bx:bx+w/2}" y="${H-4}" text-anchor="${i===0?'start':'middle'}">${fmtDM.format(d.start)}</text>`;
   });
+  if(hasFc){ const dx=m.l+nh*bw; out+=`<line x1="${dx}" x2="${dx}" y1="${m.t-2}" y2="${m.t+ih}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" opacity=".7"/><text x="${dx+4}" y="${m.t+8}" style="font-size:10px;fill:var(--muted)">forecast →</text>`; }
+  $('monthtitle').textContent = hasFc ? 'Last 30 days & 14-day outlook' : 'Last 30 days';
+  $('month').setAttribute('aria-label', hasFc ? 'Daily average prices: last 30 days and a 14-day forecast' : 'Daily average prices, last 30 days');
+  renderOutlook(days, hist);
   svg.innerHTML = out; svg._g={m,iw,n,days};
-  const sel=days[state.mhover]||days.find(d=>dayKey(d.start)===dayKey(state.view));
+  const sel=days[state.mhover]||(mfs&&days.find(d=>d.fc&&dayKey(d.start)===mfs))||days.find(d=>dayKey(d.start)===dayKey(state.view));
   $('mread').innerHTML = sel ? daySummary(sel) : 'Tap a day to view it';
 }
 function monthPick(e){ const svg=$('month'), g=svg._g; if(!g) return -1;
@@ -501,7 +603,7 @@ function monthPick(e){ const svg=$('month'), g=svg._g; if(!g) return -1;
   const i=Math.floor((px-g.m.l)/(g.iw/g.n)); return g.days[i]?i:-1; }
 const mon=$('month'), mhover = e => { const i=monthPick(e); if(i<0||i===state.mhover) return; state.mhover=i; drawMonth(); };
 const mleave = () => { if(state.mhover==null) return; state.mhover=null; drawMonth(); };
-const mpick = i => { const d=i>=0&&svgDays()[i]; mleave(); if(d && d.n){ state.view=d.start; load(); } };
+const mpick = i => { const d=i>=0&&svgDays()[i]; mleave(); if(d && d.fc){ state.mfsel=dayKey(d.start); state.mfview=dayKey(state.view); drawMonth(); } else if(d && d.n){ state.mfsel=null; state.view=d.start; load(); } };
 let mDone = 0;
 // touch/pen: choose the day under the finger when it lifts (browsers don't fire click after a scrub)
 mon.addEventListener('pointerup', e => { if(e.pointerType==='mouse') return; mDone=Date.now(); mpick(monthPick(e)); });
@@ -610,7 +712,7 @@ function explain(){ // day-level: why is *today* cheap / pricey / average?
   const S=state.today; if(!S.length) return null;
   const ctx=state.ctx||{}, r=Math.round, ps=S.map(s=>s.p), avg=mean(ps), hh=d=>fmtTime.format(d);
   const t0=S[0].from.getTime(), t1=S[S.length-1].to.getTime();
-  const past=monthDays().filter(d=>d.n && dayKey(d.start)!==dayKey(state.todayStart)), avg30=past.length>=7?mean(past.map(d=>d.avg)):null;
+  const past=histDays().filter(d=>d.n && dayKey(d.start)!==dayKey(state.todayStart)), avg30=past.length>=7?mean(past.map(d=>d.avg)):null;
   const dir = avg30!==null ? (avg-avg30 < -0.08*Math.abs(avg30) ? -1 : avg-avg30 > 0.08*Math.abs(avg30) ? 1 : 0) : (avg<15?-1:avg<25?0:1);
   const rel = avg30!==null ? ['cheaper than usual','about average','pricier than usual'][dir+1] : ['cheap','about average','pricey'][dir+1];
   const F=[];
@@ -714,7 +816,7 @@ async function init(){
         $('auto').textContent = ' · region auto-detected from your IP (change it above to override)'; }
     } catch(e){ console.warn('region detect failed', e); }
   }
-  load();
+  load(); loadForecast();
 }
 init();
 })();

@@ -10,7 +10,17 @@ const json = (r, o) => r.fulfill({ headers: H, body: JSON.stringify(o) });
 fs.mkdirSync(path.join(__dirname, '..', 'test-results'), { recursive: true });
 
 function price(t) { const hr = (t % 864e5) / 36e5, day = Math.floor(t / 864e5); return +((hr < 5 ? -3 : 15) + (hr >= 16 && hr < 19 ? 30 : 0) + Math.sin(day) * 4).toFixed(2); }
-async function mock(page, counter) {
+function forecastFile() {
+  const days = [], hours = [], p50 = [];
+  for (let d = 0; d < 13; d++) { const day0 = Date.parse('2026-11-08T00:00:00Z') + d * 864e5, mean = 150 + 25 * Math.sin(d / 2) + (d > 8 ? 30 : 0);
+    days.push({ date: new Date(day0).toISOString().slice(0, 10), h: d + 2, mean, p10: mean - 20, p90: mean + 20, published: false });
+    for (let h = 0; h < 24; h++) { hours.push(new Date(day0 + h * 36e5).toISOString()); p50.push(mean + (h >= 16 && h < 20 ? 30 : h < 6 ? -25 : 0)); } }
+  const regions = {}; for (const r of 'ABCDEFGHJKLMNP') regions[r] = { m: 1.2, adder: 12, c: 3, cap: 100 };
+  return { version: 1, issue_date: '2026-11-06', generated: '2026-11-06T11:30:00Z', status: 'ok', notes: [], days, wholesale: { hours_utc: hours, p50 }, regions,
+    accuracy: { backtest: [{ h: 1, daily_mae_pct: 12.4, trend_hit_pct: 90 }, { h: 14, daily_mae_pct: 18.3, trend_hit_pct: 70 }], logged: [] } };
+}
+async function mock(page, counter, noForecast) {
+  await page.route('https://far.cx/uk-forecast.json', r => noForecast ? r.fulfill({ status: 404, body: 'nope' }) : json(r, forecastFile()));
   await page.route('https://ipapi.co/**', r => { counter.n++; r.fulfill({ headers: H, body: JSON.stringify({ country_code: 'GB', postal: 'N15 4AB' }) }); });
   await page.route('https://ipwho.is/**', r => { counter.n++; r.fulfill({ headers: H, body: JSON.stringify({ success: true, country_code: 'GB', postal: 'N15 4AB' }) }); });
   await page.route('https://api.carbonintensity.org.uk/**', r => {
@@ -59,7 +69,10 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
     check(/^−?\d+\.\d\d$/.test(await t('#now')), `${sc.name}: current price not rendered (${await t('#now')})`);
     check((await t('#status')).length > 3, `${sc.name}: status chip empty`);
     check(await page.locator('#chart rect').count() >= 48, `${sc.name}: main chart has fewer than 48 bars`);
-    check(await page.locator('#month rect').count() >= 28, `${sc.name}: 30-day chart has too few bars`);
+    check(await page.locator('#month rect').count() >= 40, `${sc.name}: 30-day + 14-day chart has too few bars (${await page.locator('#month rect').count()})`);
+    check(await page.locator('#month rect[stroke-dasharray="2.5 2.5"]').count() >= 12, `${sc.name}: forecast bars (dotted outline) missing`);
+    check(!(await page.locator('#outlook').isHidden()) && /Prices look set to|No clear rise/.test(await t('#outlook')), `${sc.name}: outlook summary missing (${await t('#outlook')})`);
+    check((await t('#monthtitle')).includes('outlook'), `${sc.name}: month title should mention the outlook`);
     check(await page.inputValue('#cmpsel') === 'none', `${sc.name}: compare should default to none`);
     const p0 = await page.locator('#chart path').count();
     await page.selectOption('#cmpsel', 'Flexible Octopus');
@@ -97,6 +110,17 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
       counter.n = 0; await page.reload(); await page.waitForFunction(() => /\d/.test(document.querySelector('#now').textContent), null, { timeout: 10000 }); await page.waitForTimeout(1500);
       check(counter.n === 0, `${sc.name}: reload made ${counter.n} network requests (expected 0, cached)`); }
     await ctx.close();
+  }
+  { // forecast file unreachable: the page must fall back to the plain 30-day chart without errors
+    const ctx = await browser.newContext({ viewport: { width: 1100, height: 900 } }), page = await ctx.newPage(), errs = [];
+    page.on('pageerror', e => errs.push(e.message));
+    await page.addInitScript(`(()=>{const R=Date,off=${NOW}-R.now();class D extends R{constructor(...a){if(a.length===0)super(R.now()+off);else super(...a);}static now(){return R.now()+off}}window.Date=D;})()`);
+    await mock(page, { n: 0 }, true); await page.goto(PAGE_URL);
+    await page.waitForFunction(() => /\d/.test(document.querySelector('#now').textContent), null, { timeout: 10000 }); await page.waitForTimeout(1500);
+    check(await page.locator('#month rect[stroke-dasharray="2.5 2.5"]').count() === 0, 'nofc: no forecast bars expected');
+    check(await page.locator('#outlook').isHidden(), 'nofc: outlook should be hidden');
+    check((await page.textContent('#monthtitle')) === 'Last 30 days', 'nofc: title should stay "Last 30 days"');
+    check(errs.length === 0, 'nofc: page errors ' + errs.join('|')); await ctx.close();
   }
   await browser.close();
   if (failures.length) { console.error(`\n${failures.length} smoke check(s) failed`); process.exit(1); }
