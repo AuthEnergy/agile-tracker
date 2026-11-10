@@ -60,7 +60,7 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
 
 (async () => {
   let browser; try { browser = await chromium.launch(); } catch (e) { skipOrFail('could not start Chromium (' + String(e.message).split('\n')[0] + '). Run "npx playwright install chromium".'); }
-  for (const sc of scenarios) {
+  const runScenario = async sc => {
     console.log('scenario', sc.name);
     const ctx = await browser.newContext(sc.ctx), page = await ctx.newPage(), counter = { n: 0 }, errs = [];
     page.on('pageerror', e => errs.push(e.message)); page.on('console', m => m.type() === 'error' && !/manifest/i.test(m.text()) && errs.push(m.text()));
@@ -149,8 +149,8 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
         if (counter.n === 0) break; }
       check(counter.n === 0, `${sc.name}: reload made ${counter.n} network requests (expected 0, cached)`); }
     await ctx.close();
-  }
-  { // forecast file unreachable: the page must fall back to the plain 30-day chart without errors
+  };
+  const runNofc = async () => { // forecast file unreachable: the page must fall back to the plain 30-day chart without errors
     const ctx = await browser.newContext({ viewport: { width: 1100, height: 900 } }), page = await ctx.newPage(), errs = [];
     page.on('pageerror', e => errs.push(e.message));
     await page.addInitScript(`(()=>{const R=Date,off=${NOW}-R.now();class D extends R{constructor(...a){if(a.length===0)super(R.now()+off);else super(...a);}static now(){return R.now()+off}}window.Date=D;})()`);
@@ -160,8 +160,8 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
     check(await page.locator('#outlook').isHidden(), 'nofc: outlook should be hidden');
     check((await page.textContent('#monthtitle')) === 'Last 30 days', 'nofc: title should stay "Last 30 days"');
     check(errs.length === 0, 'nofc: page errors ' + errs.join('|')); await ctx.close();
-  }
-  { // export view (Agile Outgoing): toggle, reversed colours, no VAT, forecast from the export formula, persistence
+  };
+  const runExport = async () => { // export view (Agile Outgoing): toggle, reversed colours, no VAT, forecast from the export formula, persistence
     const ctx = await browser.newContext({ viewport: { width: 1100, height: 900 } }), page = await ctx.newPage(), errs = [];
     page.on('pageerror', e => errs.push(e.message));
     await page.addInitScript(`(()=>{const R=Date,off=${NOW}-R.now();class D extends R{constructor(...a){if(a.length===0)super(R.now()+off);else super(...a);}static now(){return R.now()+off}}window.Date=D;})()`);
@@ -198,6 +198,7 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
       await page.waitForFunction(() => /forecast/.test(document.querySelector('#daysub').textContent), null, { timeout: 5000 }).catch(() => {});
       check(/forecast/.test(await t('#daysub')) && /no VAT/.test(await t('#daysub')), `export: forecast day should open in the 24h chart (${await t('#daysub')})`); }
     await page.reload(); await page.waitForFunction(() => /\d/.test(document.querySelector('#now').textContent), null, { timeout: 10000 });
+    await page.waitForFunction(() => document.querySelector('#m-exp').getAttribute('aria-pressed') === 'true', null, { timeout: 5000 }).catch(() => {});
     check(await page.getAttribute('#m-exp', 'aria-pressed') === 'true', 'export: choice should persist across a reload');
     await page.click('#m-imp'); await page.waitForTimeout(1200);
     check(!/export/i.test(await t('#status')) && (await t('#whyh')).startsWith('Why today'), 'export: switching back should restore the import view');
@@ -205,7 +206,10 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
       check(opts.includes('Cosy Octopus') && !opts.includes('Octopus Flux Export'), `export: import compare list should return (${opts.join(', ')})`); }
     check(Math.abs(parseFloat((await t('#now')).replace('−', '-')) - impNow) < 0.01, 'export: import price should be unchanged after toggling back');
     check(errs.length === 0, 'export: page errors ' + errs.join('|')); await ctx.close();
-  }
+  };
+  // independent browser contexts run side by side; the export test reloads and checks persisted state, so it runs alone (file:// storage is shared-process state)
+  await Promise.all([...scenarios.map(runScenario), runNofc()]);
+  await runExport();
   await browser.close();
   if (failures.length) { console.error(`\n${failures.length} smoke check(s) failed`); process.exit(1); }
   console.log('\nAll smoke checks passed');
