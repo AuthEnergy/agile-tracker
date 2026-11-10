@@ -45,6 +45,18 @@ def note(m):
 
 
 # ---------------------------------------------------------------- refresh
+def clean_json(o):
+    """NaN/Infinity are not valid JSON (browsers refuse the whole file): turn them into null."""
+    if isinstance(o, dict):
+        return {k: clean_json(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [clean_json(v) for v in o]
+    if isinstance(o, (float, np.floating)):
+        f = float(o)
+        return f if np.isfinite(f) else None
+    return o
+
+
 def atomic_write(path, text):
     tmp = path + ".tmp"
     open(tmp, "w", encoding="utf-8").write(text)
@@ -537,7 +549,8 @@ def main():
         vals = g["pred"].values.astype(float)
         isp = T in pub_days
         if isp:
-            vals = published[T].values.astype(float)
+            pub = published[T].values.astype(float)
+            vals = np.where(np.isnan(pub), vals, pub)         # a published day may lack its last hour (CET delivery day): keep the model's value there
         b = bands.get(h)
         mean = float(np.mean(vals))
         ent = {"date": T.strftime("%Y-%m-%d"), "h": h, "mean": round(mean, 1), "published": isp}
@@ -608,7 +621,7 @@ def main():
                      "note": "backtest = walk-forward on past data; days 8-14 are the average of an optimistic and a no-skill weather assumption. 'logged' replaces it as real forecasts accumulate."},
     }
     path = a.out
-    atomic_write(path, json.dumps(out, separators=(",", ":"), default=lambda o: None if o != o else float(o)))
+    atomic_write(path, json.dumps(clean_json(out), separators=(",", ":"), allow_nan=False, default=lambda o: None if o != o else float(o)))
     print(f"wrote {path} ({os.path.getsize(path)/1024:.0f} kB); status {status}")
     print(out["summary"]["headline"])
 

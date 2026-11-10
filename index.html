@@ -542,7 +542,7 @@ async function loadForecast(){
       try{ const r=await fetch(FC_URL,{signal:c.signal}); if(!r.ok) throw new Error(r.status); j=await r.json(); } finally{ clearTimeout(id); } }
     if (!j || !j.wholesale || !Array.isArray(j.wholesale.p50) || !j.regions || !Array.isArray(j.days)) throw new Error('bad forecast file');
     const by = new Map();
-    j.wholesale.hours_utc.forEach((t,i)=>{ const ms=Date.parse(t); const k=dayKey(new Date(ms)); if(!by.has(k)) by.set(k,[]); by.get(k).push([ms, j.wholesale.p50[i]]); });
+    j.wholesale.hours_utc.forEach((t,i)=>{ if(typeof j.wholesale.p50[i]!=='number' || !isFinite(j.wholesale.p50[i])) return; const ms=Date.parse(t); const k=dayKey(new Date(ms)); if(!by.has(k)) by.set(k,[]); by.get(k).push([ms, j.wholesale.p50[i]]); });
     j._by = by; state.fc = j;
   }catch(e){ console.warn('forecast unavailable', e); state.fc = null; }
   if(state.todayStart && state.view){ applyViewState(); render(); } else drawMonth();
