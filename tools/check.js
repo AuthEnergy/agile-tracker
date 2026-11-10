@@ -15,7 +15,7 @@ if (/@import|url\(\s*["']?https?:/i.test(html)) errs.push('remote CSS import/url
 
 // 3. network allow-list: every absolute URL host must be known
 const ALLOWED = new Set([
-  'api.octopus.energy', 'api.carbonintensity.org.uk', 'api.open-meteo.com', 'ipapi.co', 'ipwho.is', // data
+  'api.octopus.energy', 'api.carbonintensity.org.uk', 'api.open-meteo.com', 'ipapi.co', 'ipwho.is', 'far.cx',          // data (far.cx = the daily 14-day outlook file)
   'www.w3.org', 'schema.org', 'github.com', 'authenergy.github.io', 'auth.energy',                     // namespaces / links
 ]);
 const hosts = new Set([...html.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)].map(m => m[1].toLowerCase()));
