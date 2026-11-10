@@ -99,6 +99,7 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
     check(/Next two weeks/.test(await t('#whyl')), `${sc.name}: Why box should carry a one-line forecast comment (${await t('#whyl')})`);
     check(await page.locator('#month rect[fill="var(--accent)"]').count() === 1, `${sc.name}: today's bar should be blue (accent) in the 30-day chart`);
     check(await page.locator('details:has-text("How is the 14-day forecast calculated?")').count() === 1, `${sc.name}: forecast explainer missing from About`);
+    check(await page.locator('details:has-text("Source code and feedback") a[href="https://github.com/AuthEnergy/agile-tracker"]').count() === 1, `${sc.name}: About should link to the repo`);
     check(await page.locator('#whymix .mixbar i').count() >= 3, `${sc.name}: generation mix bar missing`);
     check(await page.isEnabled('#nextd'), `${sc.name}: next-day should be enabled when tomorrow is published`);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
