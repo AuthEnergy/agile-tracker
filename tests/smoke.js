@@ -45,8 +45,8 @@ async function mock(page, counter, noForecast) {
       const q = new URL(u).searchParams, from = Date.parse(q.get('period_from')), to = Date.parse(q.get('period_to')), res = [];
       for (let t = Math.max(from, DATA_START); t < to && t < DATA_END; t += 1800e3) res.push({ valid_from: new Date(t).toISOString(), valid_to: new Date(t + 1800e3).toISOString(), value_inc_vat: u.includes('OUTGOING') ? +(price(t) / 2.5).toFixed(2) : price(t) });
       return json(r, { results: res.reverse(), next: null }); }
-    if (/\/products\/(FLEX|AGILE)[^/]*\/$/.test(u)) return json(r, { single_register_electricity_tariffs: { _C: { direct_debit_monthly: { code: u.includes('FLEX') ? 'E-1R-FLEX-C' : 'E-1R-AGILE-24-10-01-C' } } } });
-    return json(r, { results: [{ code: 'AGILE-24-10-01', display_name: 'Agile Octopus', available_to: null, is_business: false, is_prepay: false }, { code: 'FLEX-1', display_name: 'Flexible Octopus', available_to: null, is_business: false, is_prepay: false }, { code: 'AGILE-OUTGOING-19-05-13', display_name: 'Agile Outgoing Octopus', direction: 'EXPORT', available_to: null, is_business: false, is_prepay: false }], next: null }); });
+    if (/\/products\/(FLEX|AGILE|FLUX)[^/]*\/$/.test(u)) return json(r, { single_register_electricity_tariffs: { _C: { direct_debit_monthly: { code: u.includes('FLEX') ? 'E-1R-FLEX-C' : 'E-1R-AGILE-24-10-01-C' } } } });
+    return json(r, { results: [{ code: 'AGILE-24-10-01', display_name: 'Agile Octopus', available_to: null, is_business: false, is_prepay: false }, { code: 'FLEX-1', display_name: 'Flexible Octopus', available_to: null, is_business: false, is_prepay: false }, { code: 'AGILE-OUTGOING-19-05-13', display_name: 'Agile Outgoing Octopus', direction: 'EXPORT', available_to: null, is_business: false, is_prepay: false }, { code: 'FLUX-EXPORT-23-02-14', display_name: 'Octopus Flux Export', direction: 'EXPORT', available_to: null, is_business: false, is_prepay: false }], next: null }); });
 }
 
 const scenarios = [
@@ -166,7 +166,13 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
     check(/export/i.test(await t('#status')), `export: status should speak of export rates (${await t('#status')})`);
     check(expNow > 0 && expNow < impNow, `export: export rate (${expNow}) should differ from, and be below, the import price (${impNow})`);
     check(/no VAT/.test(await t('#daysub')) && /no VAT/.test(await t('#nowslot')), 'export: labels should say no VAT');
-    check(await page.locator('#cmp').isHidden(), 'export: tariff comparison should be hidden');
+    { const opts = await page.locator('#cmpsel option').allTextContents();
+      check(opts.includes('Octopus Flux Export') && opts.includes('Outgoing Octopus') && !opts.includes('Cosy Octopus'), `export: compare list should hold export tariffs only (${opts.join(', ')})`);
+      const p0 = await page.locator('#chart path').count();
+      await page.selectOption('#cmpsel', 'Octopus Flux Export');
+      await page.waitForFunction(n => document.querySelectorAll('#chart path').length > n, p0, { timeout: 5000 }).catch(() => {});
+      check(await page.locator('#chart path').count() > p0, 'export: choosing an export tariff should draw the comparison line');
+      await page.selectOption('#cmpsel', 'none'); await page.waitForTimeout(300); }
     check((await t('#whyh')).startsWith('Why export rates'), `export: Why box heading (${await t('#whyh')})`);
     check(/Best 2 hours to export/.test(await t('#whyl')), `export: Why box should name the best export window (${await t('#whyl')})`);
     check(/Excellent/.test(await t('#legend')), 'export: legend should be the export one');
@@ -181,7 +187,8 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
     check(await page.getAttribute('#m-exp', 'aria-pressed') === 'true', 'export: choice should persist across a reload');
     await page.click('#m-imp'); await page.waitForTimeout(1200);
     check(!/export/i.test(await t('#status')) && (await t('#whyh')).startsWith('Why today'), 'export: switching back should restore the import view');
-    check(await page.locator('#cmp').isVisible(), 'export: comparison should return in the import view');
+    { const opts = await page.locator('#cmpsel option').allTextContents();
+      check(opts.includes('Cosy Octopus') && !opts.includes('Octopus Flux Export'), `export: import compare list should return (${opts.join(', ')})`); }
     check(Math.abs(parseFloat((await t('#now')).replace('−', '-')) - impNow) < 0.01, 'export: import price should be unchanged after toggling back');
     check(errs.length === 0, 'export: page errors ' + errs.join('|')); await ctx.close();
   }
