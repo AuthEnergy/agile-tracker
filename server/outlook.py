@@ -14,7 +14,14 @@ What a run does
   6. log today's forecast to logs/ so real days 8-14 accuracy is measured from now on
 Needs pandas, numpy, scikit-learn; check_elexon_price.py, fetch_inputs.py and backtest.py in the same folder.
 """
-import argparse, csv, fcntl, io, json, os, sys, time, urllib.parse
+import os
+os.environ.setdefault("OMP_NUM_THREADS", "1")      # small VPS: one core, lowest priority
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+try:
+    os.nice(19)
+except Exception:
+    pass
+import argparse, csv, fcntl, io, json, pickle, sys, time, urllib.parse
 from datetime import date, datetime, timedelta, timezone
 
 import numpy as np
@@ -49,6 +56,10 @@ def refresh(cache):
     os.makedirs(cache, exist_ok=True)
     ok = {}
     for name in ("n2ex", "demand_forecast_archive", "wind_14d_now"):
+        pth = os.path.join(cache, name + ".csv")
+        if name == "demand_forecast_archive" and os.path.exists(pth) and time.time() - os.path.getmtime(pth) < 4 * 3600:
+            ok[name] = True                          # 20 MB; NESO updates it once a day
+            continue
         try:
             txt = fi.get_text(fi.NESO_DUMP + fi.RES[name], timeout=120)
             if len(txt) > 1000:
@@ -396,9 +407,27 @@ def main():
             ctx.live = None
     X = ctx.rows()
 
-    df = bt.build(a.cache, "A")
-    model, ntrain = train(df, D)
-    gate_ok, gate = health_gate(df, D)
+    mp = os.path.join(a.cache, "model.pkl")
+    cached = None
+    if not asof and os.path.exists(mp):
+        try:
+            cached = pickle.load(open(mp, "rb"))
+        except Exception:
+            cached = None
+    if cached and cached.get("date") == str(D.date()):          # already trained today: reuse (runs 2 and 3 are cheap)
+        model, ntrain, gate_ok, gate = cached["model"], cached["ntrain"], cached["gate_ok"], cached["gate"]
+    else:
+        df = bt.build(a.cache, "A")
+        model, ntrain = train(df, D)
+        if cached and cached.get("gate_date") and (D - pd.Timestamp(cached["gate_date"])).days < 7:
+            gate_ok, gate, gate_date = cached["gate_ok"], cached["gate"], cached["gate_date"]   # the health gate runs weekly
+        else:
+            gate_ok, gate = health_gate(df, D)
+            gate_date = str(D.date())
+        if not asof:
+            tmp = mp + ".tmp"
+            pickle.dump({"date": str(D.date()), "model": model, "ntrain": ntrain, "gate_ok": gate_ok, "gate": gate, "gate_date": gate_date}, open(tmp, "wb"))
+            os.replace(tmp, mp)
     X["pred"] = model.predict(X[bt.feats()]) + X["sh7"]
     if not gate_ok:
         status = "degraded"
@@ -461,8 +490,8 @@ def main():
         R = json.load(open(bt_res))
         for rA, rB in zip(R.get("A", []), R.get("B", [])):
             hh = rA["h"]
-            backtest_acc.append({"h": hh, "daily_mae_pct": round((rA["daily_mae_pct"] + (rB["daily_mae_pct"] if hh > 7 else rA["daily_mae_pct"])) / (2 if hh > 7 else 1), 1),
-                                 "trend_hit_pct": round((rA["trend_hit"] + (rB["trend_hit"] if hh > 7 else rA["trend_hit"])) / (2 if hh > 7 else 1))})
+            f = (lambda k: (rA[k] + rB[k]) / 2) if hh > 7 else (lambda k: rA[k])   # days 8-14: average of optimistic and no-skill weather
+            backtest_acc.append({"h": hh, "daily_mae_pct": round(f("daily_mae_pct"), 1), "trend_hit_pct": round(f("trend_hit"))})
     try:
         regions = fit_regions(a.cache, px) if not (asof or a.offline) else (json.load(open(os.path.join(a.cache, "regions.json"))) if os.path.exists(os.path.join(a.cache, "regions.json")) else {})
     except Exception as e:  # noqa

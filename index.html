@@ -139,7 +139,7 @@ button.pill.sm.txt{width:auto;padding:0 12px;font-size:.82rem;font-weight:600}
 .outlook .warn{color:var(--peak)}
 .mlegend{display:flex;flex-wrap:wrap;gap:4px 14px;padding:8px 6px 0;color:var(--muted);font-size:.72rem}
 .mlegend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
-.mlegend i.f{border:1.5px dashed var(--muted);background:transparent}
+.mlegend i.f{background:var(--mid);opacity:.4}
 .mread{padding:8px 6px 0;color:var(--muted);font-size:.8rem;min-height:1.9em}
 .mread b{color:var(--text);font-weight:650}
 .cmp{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 6px 0;font-size:.8rem;color:var(--muted)}
@@ -214,7 +214,7 @@ svg text{fill:var(--muted);font-size:11px;font-family:inherit}
       </div>
     <svg id="month" role="img" aria-label="Daily average prices, last 30 days"></svg>
     <div class="mread" id="mread"></div>
-    <div class="mlegend" id="mlegend" hidden><span><i style="background:var(--mid)"></i>Actual</span><span><i class="f"></i>Forecast (dotted, line = likely range)</span></div>
+    <div class="mlegend" id="mlegend" hidden><span><i style="background:var(--mid)"></i>Actual</span><span><i class="f"></i>Forecast (faded, line = likely range)</span></div>
     <div class="outlook" id="outlook" hidden></div>
   </section>
   <section class="card about" aria-labelledby="about-h">
@@ -363,15 +363,30 @@ async function ensureDays(starts){
   if (region!==state.region) return;
   for (const s of need){ const e=nextDay(s), sl=rows.filter(r=>r.from>=s && r.from<e); state.days.set(dayKey(s), sl); if(!DEMO) dayToCache(s, sl); }
 }
+function fcSlots(start){ // half-hour Agile forecast for a future day in this region
+  const fc=state.fc; if(!fc || !fc.regions[state.region] || !fc._by) return [];
+  const sl=fc._by.get(dayKey(start)); if(!sl || sl.length<20) return [];
+  const R=fc.regions[state.region], out=[];
+  for(const [ms,w] of sl) for(const off of [0,1800e3]){ const t=ms+off; out.push({from:new Date(t), to:new Date(t+1800e3), p:Math.min(R.cap||100, R.m*w/10 + R.adder*isPeakMs(t) + R.c)}); }
+  return out;
+}
+function applyViewState(){
+  const ts=state.todayStart, tom=nextDay(ts), vn=nextDay(state.view);
+  state.today=daySlots(ts); state.tomorrow=daySlots(tom).length>0;
+  let sl=daySlots(state.view), isFc=false;
+  if(!sl.length && dayKey(state.view)>dayKey(ts)){ const f=fcSlots(state.view); if(f.length){ sl=f; isFc=true; } }
+  state.slots=sl; state.slotsFc=isFc;
+  state.hasNext = daySlots(vn).length>0 || fcSlots(vn).length>0;
+}
 async function load(){
   $('err').style.display='none';
   const tok = state.loadTok = {}, ts = state.todayStart = ukDayStart(new Date());
   if (!state.view) state.view = ts;
   const tom = nextDay(ts), vn = nextDay(state.view);
-  const apply = () => { state.today=daySlots(ts); state.slots=daySlots(state.view); state.hasNext=daySlots(vn).length>0; state.tomorrow=daySlots(tom).length>0; };
+  const apply = applyViewState;
   const prodName = () => DEMO ? 'DEMO' : ((state.tariff || LS.get('tar:'+state.region) || {}).product || '');
   try{
-    await ensureDays([ts, tom, state.view, vn]);          // phase 1: just what the first paint needs
+    await ensureDays([ts, tom, state.view, vn].filter(d => d <= tom));          // phase 1: just what the first paint needs
     if (state.loadTok!==tok) return;
     apply(); $('prod').textContent = prodName(); render(); loadOverlay(); loadContext();
     await ensureDays(last30());                           // phase 2: the 30-day strip
@@ -411,10 +426,11 @@ function render(){
   // viewed day
   const V = state.slots;
   $('daytitle').textContent = dayLabel(state.view);
-  $('daysub').textContent = (dayLabel(state.view).length>9 ? '' : fmtDay.format(state.view) + ' · ') + 'p/kWh inc. VAT';
+  { const fd = state.slotsFc && state.fc && state.fc.days.find(x=>x.date===dayKey(state.view)), e = fd && fcErr(fd.h);
+    $('daysub').textContent = (dayLabel(state.view).length>9 ? '' : fmtDay.format(state.view) + ' · ') + 'p/kWh inc. VAT' + (state.slotsFc ? ` · forecast${e?`, typically ±${Math.round(e.pct)}% on the day's average`:''}` : ''); }
   const isToday = dayKey(state.view)===dayKey(state.todayStart);
   $('todaybtn').disabled = isToday; $('nextd').disabled = !state.hasNext;
-  $('nextd').title = state.hasNext ? 'Next day (→)' : 'Tomorrow\'s prices aren\'t published yet (usually ~4pm)';
+  $('nextd').title = state.hasNext ? 'Next day (→)' : (state.fc ? 'That is the end of the forecast' : 'Tomorrow\'s prices aren\'t published yet (usually ~4pm)');
   document.title = (S.length && i>=0) ? `${pr(S[i].p)} now · Agile Tracker` : 'Agile Tracker – Live Octopus Agile prices today (p/kWh)';
   drawAll(); renderWhy();
 }
@@ -446,8 +462,10 @@ function drawChart(){
     const bx=x(s.from.getTime())+gap/2, bw=Math.max(1,x(s.to.getTime())-x(s.from.getTime())-gap);
     const y0=y(0), yv=y(s.p), top=Math.min(y0,yv), h=Math.max(3,Math.abs(y0-yv));
     const sel = state.hover===i, isNow = i===nowI;
-    const dk=eff()==='dark', op = sel||isNow ? 1 : (nowI>=0 && i<nowI ? (dk?.38:.5) : (dk?.88:.96));
-    bars+=`<rect x="${bx}" y="${top}" width="${bw}" height="${h}" rx="${Math.min(bw/2,6)}" fill="${colour(s.p)}" opacity="${op}"/>`;
+    const dk=eff()==='dark', op = sel||isNow ? 1 : (dk?.88:.96);   // past slots stay strong; the now-line shows the time
+    bars+= state.slotsFc
+      ? `<rect x="${bx}" y="${top}" width="${bw}" height="${h}" rx="${Math.min(bw/2,6)}" fill="${colour(s.p)}" fill-opacity="${sel?.6:(dk?.38:.4)}"/>`
+      : `<rect x="${bx}" y="${top}" width="${bw}" height="${h}" rx="${Math.min(bw/2,6)}" fill="${colour(s.p)}" opacity="${op}"/>`;
     if(sel) bars+=`<rect x="${bx-1.5}" y="${top-1.5}" width="${bw+3}" height="${h+3}" rx="${Math.min(bw/2,6)+1}" fill="none" stroke="var(--text)" stroke-width="1.5"/>`;
   });
   let nowLine='';
@@ -465,7 +483,8 @@ function drawChart(){
       d += prev===null ? `M${xa},${y(v)}` : `L${xa},${y(v)}`; d += `L${xb},${y(v)}`; prev=v; });
     line=`<path d="${d}" fill="none" stroke="var(--card)" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/><path d="${d}" fill="none" stroke="var(--text)" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
   }
-  svg.innerHTML = g + bars + line + nowLine;
+  const fcTag = state.slotsFc ? `<text x="${m.l+6}" y="${m.t+12}" style="font-size:11px;font-weight:700;letter-spacing:.08em;fill:var(--muted)">FORECAST</text>` : '';
+  svg.innerHTML = g + bars + line + nowLine + fcTag;
   svg._geom = {m,iw,t0,t1,W,H,x};
 }
 
@@ -483,7 +502,7 @@ async function loadForecast(){
     j.wholesale.hours_utc.forEach((t,i)=>{ const ms=Date.parse(t); const k=dayKey(new Date(ms)); if(!by.has(k)) by.set(k,[]); by.get(k).push([ms, j.wholesale.p50[i]]); });
     j._by = by; state.fc = j;
   }catch(e){ console.warn('forecast unavailable', e); state.fc = null; }
-  drawMonth();
+  if(state.todayStart && state.view){ applyViewState(); render(); } else drawMonth();
 }
 function demoForecast(){
   const t0=ukDayStart(new Date()), hours=[], p50=[], days=[];
@@ -574,9 +593,9 @@ function drawMonth(){
     const isHov=state.mhover===i, isSel=mfs ? dayKey(d.start)===mfs : dayKey(d.start)===dayKey(state.view), isToday=dayKey(d.start)===dayKey(state.todayStart);
     if(d.fc){
       const f=d.fc, top=Math.min(y(0),y(f.avg)), h=Math.max(3,Math.abs(y(0)-y(f.avg))), c=colour(f.avg), cx=bx+w/2;
-      out+=`<rect x="${bx}" y="${top}" width="${w}" height="${h}" rx="${r}" fill="${c}" fill-opacity="${eff()==='dark'?.22:.28}" stroke="${c}" stroke-width="1.4" stroke-dasharray="2.5 2.5"/>`;
+      out+=`<rect x="${bx}" y="${top}" width="${w}" height="${h}" rx="${r}" fill="${c}" fill-opacity="${eff()==='dark'?.38:.4}"/>`;
       out+=`<line x1="${cx}" x2="${cx}" y1="${y(f.hi)}" y2="${y(f.lo)}" stroke="${c}" stroke-width="1.4" stroke-linecap="round" opacity=".9"/>`;
-      if(isSel||isHov) out+=`<rect x="${bx-1.5}" y="${Math.min(top,y(f.hi))-1.5}" width="${w+3}" height="${Math.max(h,Math.abs(y(f.lo)-y(f.hi)))+3}" rx="${r+1}" fill="none" stroke="var(--text)" stroke-width="${isHov?2:1.5}" stroke-dasharray="3 2.5" opacity="${isHov&&!isSel?.75:1}"/>`;
+      if(isSel||isHov) out+=`<rect x="${bx-1.5}" y="${Math.min(top,y(f.hi))-1.5}" width="${w+3}" height="${Math.max(h,Math.abs(y(f.lo)-y(f.hi)))+3}" rx="${r+1}" fill="none" stroke="var(--text)" stroke-width="${isHov?2:1.5}" opacity="${isHov&&!isSel?.75:1}"/>`;
       if(i===nh+7 && (n-1-i)*bw>70) out+=`<text x="${cx}" y="${H-4}" text-anchor="middle">${fmtDM.format(d.start)}</text>`;
       else if(i===n-1) out+=`<text x="${bx+w}" y="${H-4}" text-anchor="end">${fmtDM.format(d.start)}</text>`;
       return;
@@ -600,10 +619,10 @@ function drawMonth(){
 }
 function monthPick(e){ const svg=$('month'), g=svg._g; if(!g) return -1;
   const r=svg.getBoundingClientRect(), px=(e.clientX-r.left)*(svg.viewBox.baseVal.width/r.width);
-  const i=Math.floor((px-g.m.l)/(g.iw/g.n)); return g.days[i]?i:-1; }
+  const i=Math.min(g.n-1, Math.max(0, Math.floor((px-g.m.l)/(g.iw/g.n)))); return g.days[i]?i:-1; }
 const mon=$('month'), mhover = e => { const i=monthPick(e); if(i<0||i===state.mhover) return; state.mhover=i; drawMonth(); };
 const mleave = () => { if(state.mhover==null) return; state.mhover=null; drawMonth(); };
-const mpick = i => { const d=i>=0&&svgDays()[i]; mleave(); if(d && d.fc){ state.mfsel=dayKey(d.start); state.mfview=dayKey(state.view); drawMonth(); } else if(d && d.n){ state.mfsel=null; state.view=d.start; load(); } };
+const mpick = i => { const d=i>=0&&svgDays()[i]; mleave(); if(d && (d.fc || d.n)){ state.mfsel=null; state.hover=null; $('tip').style.display='none'; state.view=d.start; load(); } };
 let mDone = 0;
 // touch/pen: choose the day under the finger when it lifts (browsers don't fire click after a scrub)
 mon.addEventListener('pointerup', e => { if(e.pointerType==='mouse') return; mDone=Date.now(); mpick(monthPick(e)); });
@@ -783,7 +802,7 @@ function pointer(e){
   const i=state.slots.findIndex(s=>s.from.getTime()<=t && t<s.to.getTime());
   if(i<0){ leave(); return; }
   state.hover=i; const s=state.slots[i], tip=$('tip');
-  tip.innerHTML=`<b>${pr(s.p).replace('p','')} p/kWh</b>${fmtTime.format(s.from)}–${fmtTime.format(s.to)} · ${band(s.p)[2].split(' ')[0]}${(state.overlay&&state.overlay.rates[i]!=null)?`<br>${state.overlay.name.replace(' Octopus','').replace('Octopus ','')}: ${pr(state.overlay.rates[i])}`:''}`;
+  tip.innerHTML=`<b>${state.slotsFc?'~':''}${pr(s.p).replace('p','')} p/kWh${state.slotsFc?' (forecast)':''}</b>${fmtTime.format(s.from)}–${fmtTime.format(s.to)} · ${band(s.p)[2].split(' ')[0]}${(state.overlay&&state.overlay.rates[i]!=null)?`<br>${state.overlay.name.replace(' Octopus','').replace('Octopus ','')}: ${pr(state.overlay.rates[i])}`:''}`;
   tip.style.display='block';
   const wr=svg.parentElement.getBoundingClientRect();
   const cx=(g.x(s.from.getTime())+g.x(s.to.getTime()))/2*(r.width/g.W)+(r.left-wr.left);

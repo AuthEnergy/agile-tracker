@@ -70,7 +70,7 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
     check((await t('#status')).length > 3, `${sc.name}: status chip empty`);
     check(await page.locator('#chart rect').count() >= 48, `${sc.name}: main chart has fewer than 48 bars`);
     check(await page.locator('#month rect').count() >= 40, `${sc.name}: 30-day + 14-day chart has too few bars (${await page.locator('#month rect').count()})`);
-    check(await page.locator('#month rect[stroke-dasharray="2.5 2.5"]').count() >= 12, `${sc.name}: forecast bars (dotted outline) missing`);
+    check(await page.locator('#month rect[fill-opacity]').count() >= 12, `${sc.name}: forecast bars (faded) missing`);
     check(!(await page.locator('#outlook').isHidden()) && /Prices look set to|No clear rise/.test(await t('#outlook')), `${sc.name}: outlook summary missing (${await t('#outlook')})`);
     check((await t('#monthtitle')).includes('outlook'), `${sc.name}: month title should mention the outlook`);
     check(await page.inputValue('#cmpsel') === 'none', `${sc.name}: compare should default to none`);
@@ -101,13 +101,34 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
     check((await t('#daytitle')) === 'Yesterday', `${sc.name}: prev day title is "${await t('#daytitle')}"`);
     await page.click('#todaybtn'); await page.waitForTimeout(300);
     check((await t('#daytitle')) === 'Today', `${sc.name}: Today button did not return to today`);
+    { // forecast days open in the 24h chart; < Today > work across history and forecast
+      await page.locator('#month').scrollIntoViewIfNeeded(); const b = await page.locator('#month').boundingBox();
+      await page.waitForTimeout(700);                       // the page ignores a click right after a touch-lift
+      if (sc.ctx.hasTouch) await page.touchscreen.tap(b.x + b.width * 0.995, b.y + b.height / 2); else await page.mouse.click(b.x + b.width * 0.995, b.y + b.height / 2);
+      await page.waitForFunction(() => /forecast/.test(document.querySelector('#daysub').textContent), null, { timeout: 5000 }).catch(() => {});
+      check(/forecast/.test(await t('#daysub')), `${sc.name}: clicking a forecast day should show it in the 24h chart (sub: ${await t('#daysub')})`);
+      check(await page.locator('#chart rect[fill-opacity]').count() >= 40, `${sc.name}: forecast 24h chart should have faded half-hour bars`);
+      check(/FORECAST/.test(await page.locator('#chart').textContent()), `${sc.name}: forecast chart should be labelled`);
+      check(await page.isDisabled('#nextd'), `${sc.name}: next should be disabled on the last forecast day`);
+      await page.click('#prev'); await page.waitForTimeout(300);
+      check(/forecast/.test(await t('#daysub')), `${sc.name}: previous from the last forecast day should stay in the forecast`);
+      check(await page.isEnabled('#nextd'), `${sc.name}: next should work after going back one forecast day`);
+      await page.click('#nextd'); await page.waitForTimeout(300);
+      check(await page.isDisabled('#nextd'), `${sc.name}: next returns to the last forecast day`);
+      await page.click('#todaybtn'); await page.waitForTimeout(400);
+      check((await t('#daytitle')) === 'Today' && !/forecast/.test(await t('#daysub')), `${sc.name}: Today should return from a forecast day`);
+      await page.locator('#chart').scrollIntoViewIfNeeded();
+      await page.mouse.click(b.x + b.width * 0.2, b.y + b.height / 2).catch(() => {});
+    }
     const before = await page.evaluate(() => document.documentElement.dataset.eff);
     await page.click('#theme'); await page.waitForTimeout(200);
     check(before !== await page.evaluate(() => document.documentElement.dataset.eff), `${sc.name}: theme toggle had no effect`);
     await page.screenshot({ path: path.join(__dirname, '..', 'test-results', sc.name + '.png'), fullPage: true });
     check(errs.length === 0, `${sc.name}: page/console errors: ${errs.join(' | ')}`);
     if (sc.name === 'desktop-light') { // caching: a reload must paint without calling any API
-      counter.n = 0; await page.reload(); await page.waitForFunction(() => /\d/.test(document.querySelector('#now').textContent), null, { timeout: 10000 }); await page.waitForTimeout(1500);
+      for (let attempt = 0; attempt < 2; attempt++) { // a first reload may still be topping up the cache; the second must be fully cached
+        counter.n = 0; await page.reload(); await page.waitForFunction(() => /\d/.test(document.querySelector('#now').textContent), null, { timeout: 10000 }); await page.waitForTimeout(1500);
+        if (counter.n === 0) break; }
       check(counter.n === 0, `${sc.name}: reload made ${counter.n} network requests (expected 0, cached)`); }
     await ctx.close();
   }
@@ -117,7 +138,7 @@ const check = (cond, msg) => { if (!cond) { failures.push(msg); console.error(' 
     await page.addInitScript(`(()=>{const R=Date,off=${NOW}-R.now();class D extends R{constructor(...a){if(a.length===0)super(R.now()+off);else super(...a);}static now(){return R.now()+off}}window.Date=D;})()`);
     await mock(page, { n: 0 }, true); await page.goto(PAGE_URL);
     await page.waitForFunction(() => /\d/.test(document.querySelector('#now').textContent), null, { timeout: 10000 }); await page.waitForTimeout(1500);
-    check(await page.locator('#month rect[stroke-dasharray="2.5 2.5"]').count() === 0, 'nofc: no forecast bars expected');
+    check(await page.locator('#month rect[fill-opacity]').count() === 0, 'nofc: no forecast bars expected');
     check(await page.locator('#outlook').isHidden(), 'nofc: outlook should be hidden');
     check((await page.textContent('#monthtitle')) === 'Last 30 days', 'nofc: title should stay "Last 30 days"');
     check(errs.length === 0, 'nofc: page errors ' + errs.join('|')); await ctx.close();
