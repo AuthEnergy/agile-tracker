@@ -2,7 +2,7 @@
   "name": "agile-tracker",
   "version": "1.0.0",
   "private": true,
-  "description": "Single-page, browser-only Octopus Agile price tracker",
+  "description": "Single-page, browser-only Octopus Agile price tracker (import, export and a 14-day forecast)",
   "scripts": {
     "check": "node tools/check.js",
     "test": "npm run check",
@@ -14,5 +14,23 @@
   },
   "optionalDependencies": {
     "playwright": "1.63.0"
-  }
+  },
+  "license": "MIT",
+  "homepage": "https://authenergy.github.io/agile-tracker/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AuthEnergy/agile-tracker.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AuthEnergy/agile-tracker/issues"
+  },
+  "author": "Auth Energy",
+  "keywords": [
+    "octopus-energy",
+    "agile",
+    "agile-outgoing",
+    "electricity-prices",
+    "uk",
+    "forecast"
+  ]
 }
