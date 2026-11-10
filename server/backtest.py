@@ -47,6 +47,10 @@ def load_weather(cache):
         df = pd.DataFrame.from_dict(d, orient="index")
         df.index = pd.to_datetime(df.index, utc=True)
         frames.append(df.sort_index().astype(float))
+    full = frames[0].index
+    for f in frames[1:]:
+        full = full.union(f.index)
+    frames = [f.reindex(full) for f in frames]      # a point missing a chunk just drops out of that hour's mean
     cols = frames[0].columns
     out = {}
     for c in cols:
