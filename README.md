@@ -13,7 +13,7 @@ No backend for the page itself. `index.html` is the whole app, and everything is
 - **Prices and tariffs:** Octopus Energy public API (`api.octopus.energy`). The live product is discovered by display name (Agile Octopus for import, Agile Outgoing Octopus for export), never hard-coded, as in [agile-compare](https://github.com/AuthEnergy/agile-compare). The tariff name and product code are shown at the top of the page.
 - **Export view:** Agile Outgoing rates (no VAT), with colours reversed (green is a high rate), and a comparison against Outgoing Octopus, Flux Export, Prime Outgoing and the Smart Export Guarantee.
 - **Why the price is high or low:** national generation mix and carbon intensity from the NESO Carbon Intensity API (`api.carbonintensity.org.uk`); regional weather from Open-Meteo (`api.open-meteo.com`).
-- **14-day forecast:** a public JSON file (`https://far.cx/uk-forecast.json`, see below). The browser applies your region's formula to it.
+- **14-day forecast:** a public JSON file (`https://dev.auth.energy/uk-forecast.json`, see below). The browser applies your region's formula to it.
 - **Region:** auto-detected on first visit from your IP address (`ipapi.co`, falling back to `ipwho.is`) and mapped to a distribution region via Octopus's postcode lookup. Choose a region manually to override; the choice is remembered.
 
 Prices and lookups are cached in `localStorage`, so repeat visits paint instantly. Nothing is sent to the author.

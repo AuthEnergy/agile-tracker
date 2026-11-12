@@ -24,7 +24,7 @@ function forecastFile() {
     accuracy: { backtest: [{ h: 1, daily_mae_pct: 12.4, trend_hit_pct: 90 }, { h: 14, daily_mae_pct: 18.3, trend_hit_pct: 70 }], logged: [] } };
 }
 async function mock(page, counter, noForecast) {
-  await page.route('https://far.cx/uk-forecast.json', r => noForecast ? r.fulfill({ status: 404, body: 'nope' }) : json(r, forecastFile()));
+  await page.route('https://dev.auth.energy/uk-forecast.json', r => noForecast ? r.fulfill({ status: 404, body: 'nope' }) : json(r, forecastFile()));
   await page.route('https://ipapi.co/**', r => { counter.n++; r.fulfill({ headers: H, body: JSON.stringify({ country_code: 'GB', postal: 'N15 4AB' }) }); });
   await page.route('https://ipwho.is/**', r => { counter.n++; r.fulfill({ headers: H, body: JSON.stringify({ success: true, country_code: 'GB', postal: 'N15 4AB' }) }); });
   await page.route('https://api.carbonintensity.org.uk/**', r => {
